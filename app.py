@@ -2,10 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import uuid
-import io
 import time
 import random
-from rembg import remove as remove_bg
 
 # --- 1. 設定 API Key ---
 if "GOOGLE_API_KEY" in st.secrets:
@@ -28,12 +26,11 @@ if 'user_profile' not in st.session_state:
         "style_pref": "簡約休閒"
     }
 
-# 更新：預設名字改為 "你的專屬 Stylist"
 if 'stylist_profile' not in st.session_state:
     st.session_state.stylist_profile = {
-        "name": "你的專屬 Stylist", # Updated Name
+        "name": "你的專屬 Stylist",
         "avatar_type": "emoji",
-        "avatar_emoji": "✨",       # Updated Default Emoji
+        "avatar_emoji": "✨",
         "avatar_image": None,
         "persona": "一位貼心的專業形象顧問，語氣親切、專業，會根據你的身型提供最適合的建議。",
         "current_weather": "晴朗 24°C"
@@ -59,11 +56,16 @@ st.markdown("""
         justify-content: center; 
     }
     div[data-testid="stImage"] img {
-        height: 250px !important;
+        height: 200px !important;
         object-fit: contain !important;
     }
     button[kind="secondary"] {
         border: 1px solid #e0e0e0;
+    }
+    /* 聊天頭像微調 */
+    .chat-avatar {
+        font-size: 24px;
+        margin-right: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -71,48 +73,50 @@ st.markdown("""
 # --- 4. 核心函數 ---
 
 def compress_image(image):
+    """極致壓縮圖片，確保 AI 讀取順暢"""
     image = image.convert('RGB')
-    image.thumbnail((400, 400)) # 進一步縮小以確保穩定
+    # 縮小到 400px，足夠 AI 辨識顏色和形狀，但極省流量
+    image.thumbnail((400, 400)) 
     return image
 
-def safe_ask_ai(inputs):
-    """安全 AI 連線：失敗時回傳預設訊息，防止 Crash"""
-    models = ["gemini-1.5-flash", "gemini-pro"]
-    for model_name in models:
+def ask_gemini(inputs):
+    """
+    連接 AI 的核心函數
+    """
+    try:
+        # 嘗試使用最新的 Flash 模型 (速度快)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(inputs)
+        return response.text
+    except Exception as e:
+        # 如果 Flash 失敗，嘗試 Pro
         try:
-            model = genai.GenerativeModel(model_name)
+            model = genai.GenerativeModel('gemini-pro')
             response = model.generate_content(inputs)
             return response.text
-        except:
-            continue
-    return "⚠️ 連線有點不穩，但我建議你可以試試用「上寬下窄」的搭配法則！(AI 暫時離線)"
+        except Exception as e2:
+            return f"⚠️ 連線失敗 ({str(e2)})。請稍後再試。"
 
 def process_upload(files, category, season):
     if not files: return
-    progress = st.progress(0)
-    for i, file in enumerate(files):
+    
+    # 這裡不再需要進度條，因為沒有去背，速度極快
+    for file in files:
         try:
             img = Image.open(file)
-            # 嘗試去背，如果失敗就用原圖 (防止記憶體爆導致 Crash)
-            try:
-                b = io.BytesIO()
-                img.save(b, format='PNG')
-                res = remove_bg(b.getvalue())
-                final_img = Image.open(io.BytesIO(res))
-            except:
-                final_img = img
-            
+            # 直接存入原圖 (不做去背)
             st.session_state.wardrobe.append({
-                'id': str(uuid.uuid4()), 'image': final_img,
-                'category': category, 'season': season,
+                'id': str(uuid.uuid4()), 
+                'image': img,
+                'category': category, 
+                'season': season,
                 'size_data': {'length': '', 'width': '', 'waist': ''}
             })
         except: pass
-        progress.progress((i+1)/len(files))
     
     st.session_state.uploader_key += 1
-    st.toast(f"已加入 {len(files)} 件", icon="✅")
-    time.sleep(1)
+    st.toast(f"✅ 已加入 {len(files)} 件單品", icon="🧥")
+    time.sleep(0.5)
     st.rerun()
 
 # --- 5. Dialogs ---
@@ -125,8 +129,6 @@ def edit_item_dialog(item):
         cats = ["上衣", "下身褲裝", "下身裙裝", "連身裙", "外套", "鞋履", "配件"]
         idx = cats.index(item['category']) if item['category'] in cats else 0
         item['category'] = st.selectbox("分類", cats, index=idx)
-        
-        # 簡單尺碼
         item['size_data']['width'] = st.text_input("尺碼/備註", value=item['size_data']['width'])
         
         if st.button("🗑️ 刪除", type="primary"):
@@ -140,11 +142,10 @@ def settings_dialog():
     p['name'] = st.text_input("暱稱", value=p['name'])
     p['location'] = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
-    st.subheader("✨ Stylist 設定")
+    st.subheader("✨ Stylist")
     s = st.session_state.stylist_profile
-    s['name'] = st.text_input("Stylist 名字", value=s['name']) # 預設已經係 "你的專屬 Stylist"
+    s['name'] = st.text_input("Stylist 名字", value=s['name'])
     
-    # 簡化頭像設定
     use_img = st.checkbox("用圖片頭像")
     if use_img:
         s['avatar_type'] = 'image'
@@ -154,7 +155,6 @@ def settings_dialog():
         s['avatar_type'] = 'emoji'
         s['avatar_emoji'] = st.text_input("Emoji", value=s['avatar_emoji'])
 
-    # 人設
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
@@ -167,11 +167,9 @@ def settings_dialog():
         st.success("已更新！")
     
     s['persona'] = st.text_area("指令", value=s['persona'])
+    if st.button("完成", type="primary"): st.rerun()
 
-    if st.button("完成", type="primary"):
-        st.rerun()
-
-# --- 6. 聊天功能 (防閃退版) ---
+# --- 6. 聊天功能 (極速版) ---
 @st.dialog("💬 與 Stylist 對話", width="large")
 def chat_dialog():
     s = st.session_state.stylist_profile
@@ -197,14 +195,14 @@ def chat_dialog():
         with st.chat_message(role):
             st.write(msg["content"])
 
-    # 輸入區 (關鍵修改：避免 Rerun 導致彈走)
+    # 輸入區
     if user_in := st.chat_input("想問咩？"):
-        # 1. 直接顯示用戶訊息
+        # 1. 顯示用戶訊息
         st.session_state.chat_history.append({"role": "user", "content": user_in})
         with st.chat_message("user"):
             st.write(user_in)
         
-        # 2. 顯示 AI 思考中...
+        # 2. AI 回應
         with st.chat_message("assistant"):
             with st.spinner("思考中..."):
                 sys_msg = (
@@ -215,20 +213,15 @@ def chat_dialog():
                 )
                 
                 inputs = [sys_msg]
-                # 只傳前 5 件衫，確保極速
+                # 只傳前 5 件衫，並進行壓縮
                 for i, item in enumerate(st.session_state.wardrobe[:5]):
                     try:
                         inputs.append(f"單品#{i+1} ({item['category']})")
                         inputs.append(compress_image(item['image']))
                     except: pass
                 
-                # 獲取回應
-                reply = safe_ask_ai(inputs)
-                
-                # 直接寫出回應 (不 Rerun，保持視窗穩定)
+                reply = ask_gemini(inputs)
                 st.write(reply)
-                
-                # 存入歷史
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
 # --- 7. 主介面 ---
