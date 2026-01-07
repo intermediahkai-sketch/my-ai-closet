@@ -1,2 +1,5 @@
 streamlit
 google-generativeai
+rembg
+onnxruntime
+numpy
