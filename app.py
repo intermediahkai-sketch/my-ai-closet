@@ -3,6 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 import uuid
 import io
+import time
 from rembg import remove as remove_bg
 
 # --- 設定 API Key ---
@@ -16,277 +17,338 @@ else:
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
-# 初始化用戶設定 (現在包含名字、地區)
+# 初始化用戶與造型師設定
 if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {
-        "name": "User", # 預設名
-        "location": "香港", # 預設地區
+        "name": "User", 
+        "location": "香港",
         "gender": "女",
         "height": 160, 
         "measurements": {"bust": 0, "waist": 0, "hips": 0},
         "style_pref": "簡約休閒"
     }
 
+# 初始化造型師人格 (新增)
+if 'stylist_profile' not in st.session_state:
+    st.session_state.stylist_profile = {
+        "name": "莫弈",
+        "avatar": "🤵", # 預設頭像
+        "persona": "一位品味高雅、語氣溫柔沉穩的專業形象設計師。語氣要優雅、知性、帶有淡淡的關懷。", # 人設Prompt
+        "greeting": "早安"
+    }
+
+# 聊天記錄
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
-if 'edit_modes' not in st.session_state:
-    st.session_state.edit_modes = {}
 
-# --- 頁面設定 & CSS 美化 (重點修改) ---
-st.set_page_config(page_title="莫弈的衣帽間", page_icon="🎩", layout="wide")
+# --- CSS 美化 (強制圖片尺寸 200x300 & UI優化) ---
+st.set_page_config(page_title="My Stylist", page_icon="✨", layout="wide")
 
-# 注入 CSS 來去除按鈕灰框、統一圖片大小、置中
 st.markdown("""
     <style>
-    /* 1. 針對 Grid 內的按鈕去除邊框和背景，變成純 Icon */
-    div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+    /* 1. 強制圖片卡片尺寸 (200x300) 與 填滿模式 */
+    div[data-testid="stImage"] {
+        width: 100%;
+        height: 300px;
+        overflow: hidden;
+        display: flex;
+        justify_content: center;
+        align-items: center;
+        background-color: #f9f9f9;
+        border-radius: 10px;
+    }
+    div[data-testid="stImage"] img {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important; /* 裁切以填滿 */
+        max-width: none !important;
+    }
+    
+    /* 2. 去除按鈕灰框，變成純 Icon */
+    button[kind="secondary"] {
         border: none !important;
         background: transparent !important;
         box-shadow: none !important;
-        padding: 0px !important;
-        color: #555 !important;
     }
-    div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
-        color: #06b6d4 !important; /* 滑過變 Cyan 色 */
+    button[kind="secondary"]:hover {
+        color: #06b6d4 !important;
         background: transparent !important;
     }
-    
-    /* 2. 讓圖片容器盡量統一高度 (視乎圖片比例，這只能盡量對齊) */
-    div[data-testid="stImage"] img {
-        max-height: 200px;
-        object-fit: contain; /* 保持比例 */
+
+    /* 3. 隱藏 File Uploader 的預設文字，讓它更簡潔 */
+    section[data-testid="stFileUploader"] label {
+        display: none;
+    }
+    div[data-testid="stFileUploader"] {
+        padding-top: 0px;
     }
     
-    /* 3. 隱藏 File Uploader 的預設文字，模擬成一個 Button */
-    /* 這是比較進階的 Hack，視乎瀏覽器支援 */
-    section[data-testid="stFileUploader"] {
-        padding-top: 0;
+    /* 4. 互動按鈕樣式 (仿照你提供的圖) */
+    .chat-btn-container {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 15px;
+        cursor: pointer;
+        margin-bottom: 20px;
+        border: 1px solid #e0e0e0;
+    }
+    .chat-text {
+        text-align: right;
+        margin-right: 15px;
+        color: #333;
+    }
+    .chat-avatar {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background-color: #06b6d4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        color: white;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 定義「設定」彈出視窗 (Dialog) ---
-@st.dialog("👤 個人檔案設定")
-def open_settings():
-    st.caption("請輸入你的資料，讓莫弈更了解你。")
-    
-    # 1. 基本資料
-    new_name = st.text_input("你的暱稱", value=st.session_state.user_profile['name'])
-    new_loc = st.text_input("居住地區 (供天氣參考)", value=st.session_state.user_profile['location'])
-    
-    st.divider()
-    
-    # 2. 身體數據
-    new_gender = st.radio("性別", ["女", "男", "通用"], index=["女", "男", "通用"].index(st.session_state.user_profile['gender']), horizontal=True)
-    new_h = st.number_input("身高 (cm)", value=st.session_state.user_profile['height'])
-    
-    c1, c2, c3 = st.columns(3)
-    with c1: new_b = st.number_input("胸圍", value=st.session_state.user_profile['measurements']['bust'])
-    with c2: new_w = st.number_input("腰圍", value=st.session_state.user_profile['measurements']['waist'])
-    with c3: new_hip = st.number_input("臀圍", value=st.session_state.user_profile['measurements']['hips'])
-    
-    new_style = st.selectbox("風格偏好", ["簡約休閒", "日系層次", "韓系溫柔", "歐美型格", "復古", "正式/上班", "街頭潮流", "紳士/雅痞"], index=0)
+# --- 功能函數 ---
 
-    if st.button("💾 儲存設定", use_container_width=True, type="primary"):
-        # 更新 Session State
-        st.session_state.user_profile.update({
-            "name": new_name,
-            "location": new_loc,
-            "gender": new_gender,
-            "height": new_h,
-            "measurements": {"bust": new_b, "waist": new_w, "hips": new_hip},
-            "style_pref": new_style
-        })
-        st.rerun()
-
-# --- 側邊欄 (精簡化) ---
-with st.sidebar:
-    # 1. 加入衣櫃區
-    st.header("📥 加入衣櫃")
+# 1. 自動去背與儲存
+def process_upload(files, category, season):
+    if not files: return
     
-    col1, col2 = st.columns(2)
-    with col1:
-        cat_options = ["上衣", "下身褲裝", "下身裙裝", "連身裙/套裝", "外套", "鞋履", "配件/包包"]
-        batch_cat = st.selectbox("分類", cat_options, label_visibility="collapsed")
-    with col2:
-        batch_season = st.selectbox("季節", ["四季", "春夏", "秋冬"], label_visibility="collapsed")
+    # 顯示進度條
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    # 上載按鈕
-    uploaded_files = st.file_uploader(
-        "選擇圖片", # 這裡標籤改成了簡單文字，配合 CSS
-        type=["jpg", "png", "jpeg", "webp"], 
-        accept_multiple_files=True,
-        key=f"uploader_{st.session_state.uploader_key}",
-        label_visibility="visible" # 顯示 "選擇圖片" 作為標題
-    )
-    
-    if uploaded_files:
-        do_remove_bg = st.checkbox("✨ 自動去背", value=True)
-        if st.button("確認存入", type="primary", use_container_width=True):
-            progress_bar = st.progress(0)
-            for i, uploaded_file in enumerate(uploaded_files):
-                image = Image.open(uploaded_file)
-                final_image = image
-                if do_remove_bg:
-                    try:
-                        img_byte_arr = io.BytesIO()
-                        image.save(img_byte_arr, format='PNG')
-                        output_bytes = remove_bg(img_byte_arr.getvalue())
-                        final_image = Image.open(io.BytesIO(output_bytes))
-                    except: pass
-
-                item_id = str(uuid.uuid4())
-                st.session_state.wardrobe.append({
-                    'id': item_id,
-                    'image': final_image,
-                    'category': batch_cat, 
-                    'season': batch_season,
-                    'size_data': {'length': '', 'width': '', 'waist': ''}
-                })
-                st.session_state.edit_modes[item_id] = False
-                progress_bar.progress((i + 1) / len(uploaded_files))
+    for i, uploaded_file in enumerate(files):
+        status_text.caption(f"正在處理: {uploaded_file.name} (自動去背中...)")
+        try:
+            image = Image.open(uploaded_file)
+            # 自動去背
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            output_bytes = remove_bg(img_byte_arr.getvalue())
+            final_image = Image.open(io.BytesIO(output_bytes))
             
-            st.session_state.uploader_key += 1
-            st.success("成功！")
+            # 存入
+            st.session_state.wardrobe.append({
+                'id': str(uuid.uuid4()),
+                'image': final_image,
+                'category': category, 
+                'season': season,
+                'size_data': {'length': '', 'width': '', 'waist': ''}
+            })
+        except Exception as e:
+            st.error(f"處理失敗: {e}")
+        
+        progress_bar.progress((i + 1) / len(files))
+    
+    status_text.empty()
+    progress_bar.empty()
+    st.session_state.uploader_key += 1 # 重置上傳器
+    st.toast(f"已成功加入 {len(files)} 件單品！", icon="✅")
+    time.sleep(1) # 稍作停留讓用戶看到
+    st.rerun()
+
+# 2. 單品編輯彈出視窗 (Dialog)
+@st.dialog("✏️ 編輯單品")
+def edit_item_dialog(item):
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.image(item['image'], use_column_width=True)
+    with c2:
+        # 修改分類
+        cat_options = ["上衣", "下身褲裝", "下身裙裝", "連身裙/套裝", "外套", "鞋履", "配件/包包"]
+        new_cat = st.selectbox("分類", cat_options, index=cat_options.index(item['category']) if item['category'] in cat_options else 0)
+        item['category'] = new_cat # Auto save logic: updating session state object directly
+
+        # 尺碼 (Auto save on blur)
+        st.caption("詳細尺碼 (輸入後點擊空白處即自動儲存)")
+        if any(x in item['category'] for x in ["上衣", "外套", "連身裙"]):
+            item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data']['length'])
+            item['size_data']['width'] = st.text_input("衣闊/胸寬 (cm)", value=item['size_data']['width'])
+        elif any(x in item['category'] for x in ["下身", "褲", "裙"]):
+            item['size_data']['length'] = st.text_input("褲/裙長 (cm)", value=item['size_data']['length'])
+            item['size_data']['waist'] = st.text_input("腰圍 (吋/cm)", value=item['size_data']['waist'])
+        else:
+            item['size_data']['width'] = st.text_input("備註/尺碼", value=item['size_data']['width'])
+
+        st.divider()
+        if st.button("🗑️ 刪除此單品", type="primary", use_container_width=True):
+            st.session_state.wardrobe.remove(item)
             st.rerun()
 
+# 3. 設定彈出視窗
+@st.dialog("⚙️ 設定檔案 & 造型師")
+def settings_dialog():
+    tab_user, tab_stylist = st.tabs(["👤 個人資料", "✨ 造型師設定"])
+    
+    with tab_user:
+        st.session_state.user_profile['name'] = st.text_input("你的暱稱", value=st.session_state.user_profile['name'])
+        st.session_state.user_profile['location'] = st.text_input("居住地區", value=st.session_state.user_profile['location'])
+        st.session_state.user_profile['gender'] = st.radio("性別", ["女", "男", "通用"], index=["女", "男", "通用"].index(st.session_state.user_profile['gender']), horizontal=True)
+        
+        c1, c2, c3 = st.columns(3)
+        with c1: st.session_state.user_profile['height'] = st.number_input("身高", value=st.session_state.user_profile['height'])
+        with c2: st.session_state.user_profile['measurements']['bust'] = st.number_input("胸圍", value=st.session_state.user_profile['measurements']['bust'])
+        with c3: st.session_state.user_profile['measurements']['waist'] = st.number_input("腰圍", value=st.session_state.user_profile['measurements']['waist'])
+        
+    with tab_stylist:
+        st.info("在這裡設定你想 AI 扮演的角色，例如男友、管家或毒舌專家。")
+        st.session_state.stylist_profile['name'] = st.text_input("造型師名字", value=st.session_state.stylist_profile['name'])
+        st.session_state.stylist_profile['avatar'] = st.text_input("頭像 Emoji", value=st.session_state.stylist_profile['avatar'])
+        st.session_state.stylist_profile['greeting'] = st.text_input("打招呼方式", value=st.session_state.stylist_profile['greeting'], placeholder="例如: 早安 BB")
+        
+        persona_presets = {
+            "專業莫弈": "一位品味高雅、語氣溫柔沉穩的專業形象設計師。語氣要優雅、知性、帶有淡淡的關懷。",
+            "霸道總裁": "一位強勢但寵溺的總裁男友。語氣要自信、直接，叫用戶『笨蛋』或『寶貝』，會吃醋。",
+            "溫柔男友": "一位超級暖男，無微不至。語氣充滿愛意，叫用戶『BB』，經常稱讚。",
+            "毒舌閨蜜": "一位說話直接、尖酸刻薄但眼光獨到的時尚編輯。語氣要潑辣、幽默、一針見血。"
+        }
+        
+        selected_preset = st.selectbox("快速選擇人設", list(persona_presets.keys()))
+        if st.button("套用人設"):
+            st.session_state.stylist_profile['persona'] = persona_presets[selected_preset]
+            
+        st.session_state.stylist_profile['persona'] = st.text_area("人設指令 (Prompt)", value=st.session_state.stylist_profile['persona'], height=100)
+
+    if st.button("完成", use_container_width=True):
+        st.rerun()
+
+# --- 側邊欄 (極簡化) ---
+with st.sidebar:
+    # 頂部：設定按鈕
+    if st.button("⚙️", help="設定個人檔案及造型師"):
+        settings_dialog()
+    
     st.divider()
     
-    # 2. 清空與設定
+    # 加入衣櫃區
+    st.subheader("📥 加入衣櫃")
+    
+    c1, c2 = st.columns(2)
+    with c1: cat = st.selectbox("分類", ["上衣", "下身褲裝", "下身裙裝", "連身裙/套裝", "外套", "鞋履", "配件/包包"], label_visibility="collapsed")
+    with c2: season = st.selectbox("季節", ["四季", "春夏", "秋冬"], label_visibility="collapsed")
+    
+    # 拖曳上傳 (無按鈕，自動觸發)
+    files = st.file_uploader("Drop files", type=["jpg","png","webp"], accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
+    
+    if files:
+        process_upload(files, cat, season)
+
+    st.divider()
     if st.button("🗑️ 清空衣櫃", use_container_width=True):
         st.session_state.wardrobe = []
-        st.session_state.edit_modes = {}
         st.rerun()
-        
-    # 設定按鈕 (放在最下方)
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("⚙️ 設定個人檔案", use_container_width=True):
-        open_settings()
-
 
 # --- 主畫面 ---
-tab1, tab2 = st.tabs(["🧥 我的衣櫃", "✨ 莫弈"])
+# 頂部打招呼區 (左上角)
+p = st.session_state.user_profile
+s = st.session_state.stylist_profile
+
+col_header, col_weather = st.columns([2, 1])
+with col_header:
+    st.title(f"{s['avatar']} {s['name']}: {s['greeting']}, {p['name']}")
+with col_weather:
+    st.caption(f"📍 {p['location']} | 🌡️ {st.session_state.get('last_temp', '24')}°C")
+
+# 分頁
+tab1, tab2 = st.tabs(["🧥 我的衣櫃", "💬 互動穿搭"])
 
 with tab1:
-    # 頂部：個人化打招呼
-    p = st.session_state.user_profile
-    st.caption(f"👋 Hi {p['name']}, {p['location']} 今日天氣不錯。")
-
     if not st.session_state.wardrobe:
-        st.info("👈 左側點擊「選擇圖片」來豐富你的衣櫃吧！")
+        st.info("👈 左側直接拖曳圖片即可加入衣櫃 (自動去背)！")
     else:
-        # 篩選器
+        # 篩選
         all_cats = list(set([item['category'] for item in st.session_state.wardrobe]))
-        selected_cats = st.multiselect("🔍 篩選", all_cats, placeholder="顯示全部")
+        selected_cats = st.multiselect("🔍", all_cats, placeholder="篩選分類 (顯示全部)")
         
         display_items = [item for item in st.session_state.wardrobe if item['category'] in selected_cats] if selected_cats else st.session_state.wardrobe
-            
-        # 顯示網格 (5 columns)
+        
+        # Grid 顯示 (4 columns for 200px width look)
         cols = st.columns(5)
         for i, item in enumerate(display_items):
             with cols[i % 5]:
-                # 圖片
-                st.image(item['image'], use_column_width=True)
+                # 圖片 (CSS 強制 200x300)
+                st.image(item['image'])
                 
-                # 按鈕區 (置中、無框、緊湊)
-                # 使用 nested columns 來控制按鈕位置
-                b_col1, b_col2, b_col3 = st.columns([1, 1, 1])
-                with b_col2: # 放在中間
-                    # 這裡放兩個按鈕在同一格其實很難置中，所以我們用 CSS 控制
-                    # 我們將兩個按鈕分開 columns 放，盡量靠近
-                    pass
-                
-                # 重新排版按鈕：使用兩個極窄的 column 在中間
-                btn_c1, btn_c2 = st.columns([1, 1])
-                with btn_c1:
-                    # 編輯按鈕
-                    icon = "📝" if st.session_state.edit_modes.get(item['id'], False) else "✏️"
-                    if st.button(icon, key=f"edit_{item['id']}"):
-                        st.session_state.edit_modes[item['id']] = not st.session_state.edit_modes.get(item['id'], False)
-                        st.rerun()
-                with btn_c2:
-                    # 刪除按鈕
-                    if st.button("🗑️", key=f"del_{item['id']}"):
-                        st.session_state.wardrobe.remove(item)
-                        if item['id'] in st.session_state.edit_modes: del st.session_state.edit_modes[item['id']]
-                        st.rerun()
-
-                # 編輯模式 (上中下排列，根據分類顯示不同欄位)
-                if st.session_state.edit_modes.get(item['id'], False):
-                    with st.container():
-                        st.markdown("---")
-                        # 修改分類
-                        new_cat = st.selectbox("分類", cat_options, index=cat_options.index(item['category']) if item['category'] in cat_options else 0, key=f"cat_{item['id']}")
-                        if new_cat != item['category']:
-                            item['category'] = new_cat
-                            st.rerun()
-                        
-                        # 智能欄位顯示
-                        # 如果是上衣/外套/連身裙 -> 顯示 衣長、衣闊
-                        if any(x in item['category'] for x in ["上衣", "外套", "連身裙"]):
-                            item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data']['length'], key=f"l_{item['id']}")
-                            item['size_data']['width'] = st.text_input("衣闊/胸寬 (cm)", value=item['size_data']['width'], key=f"w_{item['id']}")
-                        
-                        # 如果是下身 -> 顯示 褲長/裙長、腰圍
-                        elif any(x in item['category'] for x in ["下身", "褲", "裙"]):
-                            item['size_data']['length'] = st.text_input("褲/裙長 (cm)", value=item['size_data']['length'], key=f"l_{item['id']}")
-                            item['size_data']['waist'] = st.text_input("腰圍 (吋/cm)", value=item['size_data']['waist'], key=f"wa_{item['id']}")
-                        
-                        # 其他 (鞋/袋) -> 顯示 備註
-                        else:
-                            item['size_data']['width'] = st.text_input("備註/尺碼", value=item['size_data']['width'], key=f"w_{item['id']}")
-                        
-                        st.markdown("---")
+                # 只有一個鉛筆按鈕
+                if st.button("✏️", key=f"edit_{item['id']}", use_container_width=True):
+                    edit_item_dialog(item)
 
 with tab2:
-    st.subheader(f"✨ 莫弈: 早安，{p['name']}")
+    # 模仿你圖片的互動入口
+    st.markdown(f"""
+    <div class="chat-btn-container">
+        <div class="chat-text">
+            <strong>有穿搭煩惱？問我啦！</strong><br>
+            <span style="font-size: 12px; color: #666;">點擊開始與 {s['name']} 對話</span>
+        </div>
+        <div class="chat-avatar">{s['avatar']}</div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # 這裡可以簡單顯示當前設定的環境
-    st.caption(f"📍 {p['location']} | 🌡️ {st.session_state.get('last_temp', '未設定')}°C")
-
-    col_w1, col_w2, col_w3 = st.columns(3)
-    with col_w1: weather = st.text_input("天氣", "晴朗")
-    with col_w2: temp = st.text_input("氣溫 (°C)", "24")
-    with col_w3: occasion = st.text_input("場合", "約會")
-    
-    # 記住上次輸入的溫度方便顯示
+    # 環境設定
+    c1, c2, c3 = st.columns(3)
+    with c1: weather = st.text_input("天氣", "晴朗")
+    with c2: temp = st.text_input("氣溫", "24")
+    with c3: occasion = st.text_input("場合", "約會")
     if temp: st.session_state['last_temp'] = temp
 
-    if st.button("🪄 請求建議", type="primary"):
-        if len(st.session_state.wardrobe) < 2:
-            st.warning("衣櫃太少衫啦，加入多啲先啦！")
-        else:
-            with st.spinner("莫弈正在思考..."):
+    # 聊天歷史顯示
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"], avatar=s['avatar'] if msg["role"] == "assistant" else None):
+            st.markdown(msg["content"])
+            if "image" in msg:
+                st.image(msg["image"], width=200)
+
+    # 聊天輸入框
+    if prompt := st.chat_input(f"同 {s['name']} 講你想點襯..."):
+        # 1. 用戶訊息
+        st.session_state.chat_history.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # 2. AI 思考與回應
+        with st.chat_message("assistant", avatar=s['avatar']):
+            with st.spinner(f"{s['name']} 正在配搭中..."):
                 try:
                     # 構建 Prompt
-                    user_info = f"名稱:{p['name']}, 性別:{p['gender']}, 身高:{p['height']}cm, 三圍:{p['measurements']['bust']}/{p['measurements']['waist']}/{p['measurements']['hips']}"
+                    user_info = f"用戶:{p['name']}, 性別:{p['gender']}, 身高:{p['height']}cm, 三圍:{p['measurements']['bust']}/{p['measurements']['waist']}"
                     
-                    prompt = (
-                        f"你現在是「莫弈」，用戶 {p['name']} 的專屬形象設計師。\n"
-                        f"【用戶檔案】{user_info}。\n"
-                        f"【風格偏好】{p['style_pref']}。\n"
-                        f"【今日情報】地點:{p['location']}, 天氣:{weather}, 氣溫:{temp}°C, 場合:{occasion}。\n\n"
-                        f"【任務】\n"
-                        f"請從衣櫃中搭配一套造型。打招呼時請用「Hi {p['name']}」開頭，並加入對 {p['location']} 天氣的關懷。\n"
-                        f"語氣要優雅、沉穩、帶有磁性，像一位紳士在給予專業建議。\n"
+                    sys_prompt = (
+                        f"你現在的身分是「{s['name']}」。{s['persona']}\n"
+                        f"【用戶資料】{user_info}。\n"
+                        f"【今日情報】地點:{p['location']}, 天氣:{weather}, 氣溫:{temp}°C, 場合:{occasion}。\n"
+                        f"【你的任務】\n"
+                        f"用戶問：「{prompt}」。請從衣櫃中挑選衣服回應。\n"
+                        f"回應格式：\n"
+                        f"1. 先用你的人設語氣回應 (例如男友口吻)。\n"
+                        f"2. 明確列出你建議穿哪幾件 (編號+名稱)。\n"
+                        f"3. 解釋為什麼這樣配 (針對天氣/場合/身形)。\n"
                     )
                     
-                    inputs = [prompt]
+                    inputs = [sys_prompt]
+                    # 加入衣櫃圖片供 AI 參考
                     items_to_send = display_items if 'display_items' in locals() and display_items else st.session_state.wardrobe
-
                     for i, item in enumerate(items_to_send):
-                        # 根據不同分類傳送不同尺碼資料
-                        s = item['size_data']
-                        size_str = ""
-                        if 'length' in s and s['length']: size_str += f"長:{s['length']} "
-                        if 'width' in s and s['width']: size_str += f"闊:{s['width']} "
-                        if 'waist' in s and s['waist']: size_str += f"腰:{s['waist']} "
-                        
-                        inputs.append(f"#{i+1}[{item['category']}] {size_str}")
+                        s_info = item['size_data']
+                        size_str = f"L:{s_info['length']} W:{s_info['width']} Waist:{s_info['waist']}"
+                        inputs.append(f"圖#{i+1} [{item['category']}] ({size_str})")
                         inputs.append(item['image'])
                     
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(inputs)
+                    
                     st.markdown(response.text)
+                    st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                    
                 except Exception as e:
-                    st.error(f"發生意外: {e}")
+                    st.error(f"AI 發生錯誤: {e}")
