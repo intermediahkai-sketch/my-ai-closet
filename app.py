@@ -34,7 +34,7 @@ if 'stylist_profile' not in st.session_state:
         "avatar_type": "emoji", 
         "avatar_emoji": "🤵",
         "avatar_image": None,
-        "persona": "一位品味高雅、語氣溫柔沉穩的專業形象設計師。語氣要優雅、知性、帶有淡淡的關懷。",
+        "persona": "一位品味高雅、語氣溫柔沉穩的專業形象設計師。",
         "current_weather_info": "天氣晴朗" 
     }
 
@@ -44,15 +44,15 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- CSS 美化 ---
+# --- CSS 美化 (修復 Layout 災難) ---
 st.set_page_config(page_title="My Stylist", page_icon="✨", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. 圖片卡片 */
+    /* 1. 圖片卡片 (衣櫃) */
     div[data-testid="stImage"] {
         width: 100%;
-        height: 300px;
+        height: 250px;
         overflow: hidden;
         display: flex;
         justify_content: center;
@@ -64,64 +64,90 @@ st.markdown("""
         width: 100% !important;
         height: 100% !important;
         object-fit: cover !important;
-        max-width: none !important;
     }
     
-    /* 2. 去除按鈕灰框 */
-    button[kind="secondary"] {
-        border: none !important;
-        background: transparent !important;
-        box-shadow: none !important;
-    }
-    button[kind="secondary"]:hover {
-        color: #06b6d4 !important;
-    }
-
-    /* 3. File Uploader */
+    /* 2. 隱藏 File Uploader 文字 */
     section[data-testid="stFileUploader"] label { display: none; }
     div[data-testid="stFileUploader"] { padding-top: 0px; }
     
-    /* 4. 造型師卡片樣式 */
+    /* 3. 側邊欄造型師容器 */
     .stylist-container {
+        position: relative;
         text-align: center;
         padding: 20px 10px;
         background: #f0f2f6;
         border-radius: 15px;
         margin-bottom: 20px;
+        border: 1px solid #e0e0e0;
     }
-    /* 大頭像樣式 */
-    .big-avatar {
-        font-size: 80px;
-        line-height: 100px;
-        margin-bottom: 10px;
-    }
-    .big-avatar img {
-        width: 100px;
-        height: 100px;
+
+    /* 4. 頭像統一圓形樣式 (180x180) */
+    .avatar-circle {
+        width: 180px;
+        height: 180px;
         border-radius: 50%;
-        object-fit: cover;
-        border: 3px solid #06b6d4;
+        overflow: hidden;
+        margin: 0 auto 10px auto;
+        border: 4px solid #06b6d4;
+        background-color: white;
+        display: flex;
+        justify_content: center;
+        align-items: center;
     }
-    
-    /* 名字與設定按鈕行 */
+    .avatar-circle img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .avatar-emoji {
+        font-size: 100px;
+        line-height: 180px;
+    }
+
+    /* 5. 隱形按鈕 Hack (覆蓋在頭像上) */
+    .invisible-btn {
+        position: absolute;
+        top: 20px; /* Adjust based on container padding */
+        left: 50%;
+        transform: translateX(-50%);
+        width: 180px;
+        height: 180px;
+        z-index: 10;
+        opacity: 0; /* 完全透明 */
+    }
+    /* 必須讓 Streamlit 的 button 填滿這個 div */
+    .invisible-btn button {
+        width: 100% !important;
+        height: 100% !important;
+        padding: 0 !important;
+        border: none !important;
+    }
+
+    /* 6. 名字與設定 */
     .name-row {
         display: flex;
         justify-content: center;
         align-items: center;
         gap: 10px;
-    }
-    .name-row h3 {
-        margin: 0;
-        color: #333;
+        margin-top: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- AI 功能函數 (加強錯誤處理) ---
+# --- AI 功能函數 (修復 Crash & 分類) ---
 
 def get_gemini_response(inputs):
-    """嘗試使用不同的模型名稱，防止 404 錯誤"""
-    models_to_try = ['gemini-1.5-flash', 'gemini-pro']
+    """
+    智能模型切換器：
+    嘗試不同的模型名稱，避免 404 錯誤。
+    """
+    # 優先順序：最新的 Flash -> 標準 Flash -> 舊版 Pro -> 免費版 Pro
+    models_to_try = [
+        'gemini-1.5-flash', 
+        'gemini-1.5-flash-latest', 
+        'gemini-1.5-pro',
+        'gemini-pro'
+    ]
     
     last_error = None
     for model_name in models_to_try:
@@ -130,20 +156,33 @@ def get_gemini_response(inputs):
             response = model.generate_content(inputs)
             return response.text
         except Exception as e:
+            # 記錄錯誤但繼續嘗試下一個
             last_error = e
-            continue # 試下一個模型
+            continue 
     
-    # 如果全部失敗
-    return f"抱歉，AI 連線暫時出現問題 ({str(last_error)})。請稍後再試。"
+    return f"⚠️ 連線失敗: 無法連接任何 AI 模型。請檢查 API Key 或稍後再試。({last_error})"
 
 def ai_classify_image(image):
+    """
+    修復：使用【原圖】進行分類，並優化 Prompt。
+    """
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = "Classify this fashion item into exactly one: [上衣, 下身褲裝, 下身裙裝, 連身裙, 外套, 鞋履, 配件]. Return ONLY category name."
+        # 優化 Prompt：要求更明確
+        prompt = (
+            "Look at this fashion item. Classify it into exactly one category.\n"
+            "Options: [上衣, 下身褲裝, 下身裙裝, 連身裙, 外套, 鞋履, 配件].\n"
+            "Rule: T-shirts, shirts, sweaters are '上衣'. Jeans, trousers, shorts are '下身褲裝'. Skirts are '下身裙裝'.\n"
+            "Return ONLY the category name."
+        )
         response = model.generate_content([prompt, image])
         cat = response.text.strip()
         valid = ["上衣", "下身褲裝", "下身裙裝", "連身裙", "外套", "鞋履", "配件"]
-        return cat if cat in valid else "上衣"
+        # 如果 AI 回傳了多餘的字，嘗試清洗
+        for v in valid:
+            if v in cat:
+                return v
+        return "上衣" # 默認值
     except:
         return "上衣"
 
@@ -153,32 +192,38 @@ def process_upload(files, season):
     status_text = st.empty()
     
     for i, uploaded_file in enumerate(files):
-        status_text.caption(f"處理中: {uploaded_file.name}")
+        status_text.caption(f"處理中: {uploaded_file.name} (AI 分析中...)")
         try:
-            image = Image.open(uploaded_file)
-            # 去背
+            # 1. 讀取原圖 (用作 AI 分類)
+            original_image = Image.open(uploaded_file)
+            
+            # 2. AI 分類 (使用原圖，準確度更高)
+            detected_cat = ai_classify_image(original_image)
+            
+            # 3. 去背 (用於展示)
             img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format='PNG')
+            original_image.save(img_byte_arr, format='PNG')
             output_bytes = remove_bg(img_byte_arr.getvalue())
             final_image = Image.open(io.BytesIO(output_bytes))
             
-            # 分類
-            cat = ai_classify_image(image)
-            
+            # 4. 存入
             st.session_state.wardrobe.append({
                 'id': str(uuid.uuid4()),
                 'image': final_image,
-                'category': cat, 
+                'category': detected_cat, 
                 'season': season,
                 'size_data': {'length': '', 'width': '', 'waist': ''}
             })
-        except: pass
+        except Exception as e:
+            st.error(f"Error processing {uploaded_file.name}: {e}")
+            time.sleep(2)
+        
         progress_bar.progress((i + 1) / len(files))
     
     status_text.empty()
     progress_bar.empty()
     st.session_state.uploader_key += 1
-    st.toast(f"已加入 {len(files)} 件！", icon="✅")
+    st.toast(f"成功加入 {len(files)} 件！", icon="✅")
     time.sleep(0.5)
     st.rerun()
 
@@ -191,7 +236,7 @@ def get_simulated_weather(location):
     }
     return random.choice(loc_map.get(location, ["晴朗 25°C", "多雲 20°C"]))
 
-# --- 彈出視窗 (Dialogs) ---
+# --- Dialogs ---
 
 @st.dialog("✏️ 編輯單品")
 def edit_item_dialog(item):
@@ -230,13 +275,12 @@ def settings_dialog():
         c1, c2, c3 = st.columns(3)
         with c1: st.session_state.user_profile['measurements']['bust'] = st.number_input("胸圍", value=st.session_state.user_profile['measurements']['bust'])
         with c2: st.session_state.user_profile['measurements']['waist'] = st.number_input("腰圍", value=st.session_state.user_profile['measurements']['waist'])
-        with c3: st.session_state.user_profile['measurements']['hips'] = st.number_input("臀圍 (Hips)", value=st.session_state.user_profile['measurements']['hips'])
+        with c3: st.session_state.user_profile['measurements']['hips'] = st.number_input("臀圍", value=st.session_state.user_profile['measurements']['hips'])
         st.session_state.user_profile['height'] = st.number_input("身高", value=st.session_state.user_profile['height'])
 
     with tab2:
         st.session_state.stylist_profile['name'] = st.text_input("造型師名字", value=st.session_state.stylist_profile['name'])
         
-        # 改回穩定的 Radio Button 選擇
         avatar_mode = st.radio("頭像類型", ["Emoji", "上傳圖片"], horizontal=True)
         if avatar_mode == "Emoji":
             st.session_state.stylist_profile['avatar_type'] = 'emoji'
@@ -262,31 +306,29 @@ def settings_dialog():
             "貼身管家": "你現在是皇家級貼身管家。語氣要極度恭敬、正式，稱呼用戶為『大小姐』。為您服務是我的榮幸。"
         }
         
-        # 這裡改用 Button 確認，防止跳動
         selected_key = st.selectbox("人設清單", list(personas.keys()))
         if st.button("套用此人設 (OK)"):
              st.session_state.stylist_profile['persona'] = personas[selected_key]
              st.success(f"已切換為：{selected_key}")
+             time.sleep(0.5)
              st.rerun()
 
         st.session_state.stylist_profile['persona'] = st.text_area(
-            "人設指令 (可手動修改)", 
-            value=st.session_state.stylist_profile['persona'], 
-            height=100
+            "人設指令", value=st.session_state.stylist_profile['persona'], height=100
         )
 
     if st.button("完成", use_container_width=True, type="primary"):
         st.rerun()
 
-# --- 聊天對話視窗 ---
+# --- 聊天 Dialog ---
 @st.dialog("💬 與造型師對話", width="large")
 def chat_dialog():
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 頂部資訊
     col_av, col_nm = st.columns([1, 5])
     with col_av:
+        # 小頭像顯示
         if s['avatar_type'] == 'image' and s['avatar_image']:
             st.image(s['avatar_image'], width=60)
         else:
@@ -297,7 +339,6 @@ def chat_dialog():
 
     st.divider()
 
-    # 自動開場
     if not st.session_state.chat_history:
         weather_info = get_simulated_weather(p['location'])
         s['current_weather_info'] = weather_info
@@ -308,11 +349,11 @@ def chat_dialog():
                 f"用戶 {p['name']} 在 {p['location']}，天氣：{weather_info}。\n"
                 f"任務：向用戶打招呼，報告天氣，並詢問穿搭需求。\n"
             )
+            # 使用增強版函數
             ai_reply = get_gemini_response([opening_prompt])
             st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
             st.rerun()
 
-    # 顯示歷史
     for msg in st.session_state.chat_history:
         avatar = None
         if msg["role"] == "assistant":
@@ -324,12 +365,10 @@ def chat_dialog():
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
 
-    # 輸入框
     if prompt := st.chat_input(f"回應 {s['name']}..."):
         st.session_state.chat_history.append({"role": "user", "content": prompt})
         st.rerun()
 
-    # 處理 AI 回應
     if st.session_state.chat_history and st.session_state.chat_history[-1]["role"] == "user":
         with st.chat_message("assistant"):
             with st.spinner("思考搭配中..."):
@@ -361,51 +400,85 @@ def chat_dialog():
                 st.markdown(ai_reply)
                 st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
 
-
 # --- 側邊欄 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 1. 造型師卡片 (新版面設計)
+    # 1. 造型師卡片 (修復版)
     with st.container():
         st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
         
-        # A. 大頭像 (點擊打開 Chat)
-        # 這裡用一個 Button，如果點擊就開 Dialog
-        if st.button("Open Chat", key="avatar_btn", help="點擊開始對話", use_container_width=True):
-            chat_dialog()
-            
-        # 由於 st.button 不能直接顯示圖片，我們用 CSS 蓋住，
-        # 或者在 button 上方顯示大圖，告訴用戶 "點擊上方進入"
-        
-        # 這裡使用 HTML 顯示大頭像視覺效果
-        st.markdown('<div class="big-avatar">', unsafe_allow_html=True)
+        # A. 視覺層 (HTML/CSS)
+        st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
         if s['avatar_type'] == 'image' and s['avatar_image']:
-            # 將 bytes 轉為 base64 以在 HTML 顯示 (略過複雜步驟，直接用 st.image 模擬)
-            st.image(s['avatar_image'], width=120)
+            # 這裡有點 hacky, 為了在 markdown 顯示 bytes image, 我們用 st.image 但要蓋住
+            # 簡化方案：只顯示空殼，用 CSS background? 不行，image data 是動態的
+            # 妥協方案：這裡用 st.image 顯示，但被 invisible-btn 覆蓋
+            pass 
         else:
-            st.markdown(f"<div>{s['avatar_emoji']}</div>", unsafe_allow_html=True)
+            st.markdown(f'<div class="avatar-emoji">{s["avatar_emoji"]}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-        
-        # B. 名字 + 設定按鈕 (並排)
-        c_name, c_gear = st.columns([4, 1])
+
+        # B. 邏輯層 (隱形按鈕)
+        # 這是覆蓋在上面的透明按鈕
+        st.markdown('<div class="invisible-btn">', unsafe_allow_html=True)
+        if st.button(" ", key="clk_avatar"):
+            chat_dialog()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # C. 補救措施：如果是 Image 模式，我們需要在這裡真的畫出那張圖
+        # 因為 HTML 無法直接讀取 session_state 的 bytes
+        if s['avatar_type'] == 'image' and s['avatar_image']:
+            # 我們利用 columns 把圖片塞進那個圓形區域 (視覺微調可能需要)
+            # 由於 Streamlit 限制，最簡單是放在下面，或者用 CSS 負 margin
+            # 這裡為了穩定，我們把圖放在按鈕「下方」
+            # 但因為 CSS 設定了 avatar-circle 的位置，我們可以用 st.image 顯示在 container 頂部
+            # 其實最簡單係：
+             st.markdown("""
+                <style>
+                /* 當有圖片時，隱藏 emoji 框，改為顯示圖片 */
+                /* 這是個難點，Streamlit 難以精確控制 DOM */
+                </style>
+            """, unsafe_allow_html=True)
+             # 直接在卡片中間顯示圖片，然後用負 Margin 拉上去？
+             # 不，最穩定的方法是：不顯示 HTML 圓圈，直接顯示 st.image，然後用 CSS 把 st.image 變圓
+             st.markdown("""
+                <style>
+                div[data-testid="stImage"] > img {
+                    border-radius: 50%;
+                    width: 180px !important;
+                    height: 180px !important;
+                    object-fit: cover;
+                    border: 4px solid #06b6d4;
+                    margin: 0 auto;
+                }
+                </style>
+             """, unsafe_allow_html=True)
+             st.image(s['avatar_image'])
+             # 恢復下方 CSS 防止影響主衣櫃
+             st.markdown("""
+                <style>
+                /* Reset for other images */
+                </style>
+             """, unsafe_allow_html=True)
+
+        # 名字與設定 (並排)
+        c_name, c_gear = st.columns([5, 1])
         with c_name:
             st.markdown(f"<h3 style='text-align:right; margin:0;'>{s['name']}</h3>", unsafe_allow_html=True)
         with c_gear:
             if st.button("⚙️", key="btn_settings_small"):
                 settings_dialog()
         
-        # C. 下方 Say Hi 細字
-        st.caption(f"早安 {p['name']}，{p['location']} 天氣不錯。\n(點擊頭像開始對話)")
-        
+        st.caption(f"早安 {p['name']}，{p['location']} 天氣不錯。\n(點擊頭像對話)")
         st.markdown('</div>', unsafe_allow_html=True)
     
     st.divider()
     
-    # 2. 加入衣櫃 (AI 自動分類)
+    # 2. 加入衣櫃 (AI 自動分類修復版)
     st.subheader("📥 加入衣櫃")
-    st.info("AI 自動分類中 ✨")
+    st.info("拖放圖片，AI 自動分類 (上衣/下身/鞋) ✨")
     
     season = st.selectbox("季節", ["四季", "春夏", "秋冬"], label_visibility="collapsed")
     
@@ -430,6 +503,21 @@ else:
     cols = st.columns(5)
     for i, item in enumerate(display_items):
         with cols[i % 5]:
+            # 這裡需要重設 CSS，因為上面為了頭像改了 stImage 樣式
+            # 我們使用 inline style 或者特定的 class (Streamlit 難以做到)
+            # 解決方案：上面的 CSS 只針對側邊欄？很難。
+            # 妥協：我們在 loop 裡強制 CSS
+            st.markdown("""
+                <style>
+                div[data-testid="stColumn"] div[data-testid="stImage"] > img {
+                    border-radius: 10px !important; /* 方角圓邊 */
+                    width: 100% !important;
+                    height: 250px !important;
+                    border: none !important;
+                }
+                </style>
+            """, unsafe_allow_html=True)
             st.image(item['image'])
+            
             if st.button("✏️", key=f"edit_{item['id']}", use_container_width=True):
                 edit_item_dialog(item)
