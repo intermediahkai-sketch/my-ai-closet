@@ -359,3 +359,77 @@ def chat_dialog():
 
                 ai_reply = get_gemini_response(inputs)
                 st.markdown(ai_reply)
+                st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
+
+
+# --- 側邊欄 ---
+with st.sidebar:
+    s = st.session_state.stylist_profile
+    p = st.session_state.user_profile
+    
+    # 1. 造型師卡片 (新版面設計)
+    with st.container():
+        st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
+        
+        # A. 大頭像 (點擊打開 Chat)
+        # 這裡用一個 Button，如果點擊就開 Dialog
+        if st.button("Open Chat", key="avatar_btn", help="點擊開始對話", use_container_width=True):
+            chat_dialog()
+            
+        # 由於 st.button 不能直接顯示圖片，我們用 CSS 蓋住，
+        # 或者在 button 上方顯示大圖，告訴用戶 "點擊上方進入"
+        
+        # 這裡使用 HTML 顯示大頭像視覺效果
+        st.markdown('<div class="big-avatar">', unsafe_allow_html=True)
+        if s['avatar_type'] == 'image' and s['avatar_image']:
+            # 將 bytes 轉為 base64 以在 HTML 顯示 (略過複雜步驟，直接用 st.image 模擬)
+            st.image(s['avatar_image'], width=120)
+        else:
+            st.markdown(f"<div>{s['avatar_emoji']}</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # B. 名字 + 設定按鈕 (並排)
+        c_name, c_gear = st.columns([4, 1])
+        with c_name:
+            st.markdown(f"<h3 style='text-align:right; margin:0;'>{s['name']}</h3>", unsafe_allow_html=True)
+        with c_gear:
+            if st.button("⚙️", key="btn_settings_small"):
+                settings_dialog()
+        
+        # C. 下方 Say Hi 細字
+        st.caption(f"早安 {p['name']}，{p['location']} 天氣不錯。\n(點擊頭像開始對話)")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # 2. 加入衣櫃 (AI 自動分類)
+    st.subheader("📥 加入衣櫃")
+    st.info("AI 自動分類中 ✨")
+    
+    season = st.selectbox("季節", ["四季", "春夏", "秋冬"], label_visibility="collapsed")
+    
+    files = st.file_uploader("Drop files", type=["jpg","png","webp"], accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
+    if files: process_upload(files, season)
+
+    st.divider()
+    if st.button("🗑️ 清空衣櫃", use_container_width=True):
+        st.session_state.wardrobe = []
+        st.rerun()
+
+# --- 主畫面 ---
+st.subheader("🧥 我的衣櫃")
+
+if not st.session_state.wardrobe:
+    st.info("👈 點擊左上角頭像找造型師傾偈，或者拖曳圖片入衣櫃！")
+else:
+    all_cats = list(set([item['category'] for item in st.session_state.wardrobe]))
+    selected_cats = st.multiselect("🔍", all_cats, placeholder="篩選分類")
+    display_items = [item for item in st.session_state.wardrobe if item['category'] in selected_cats] if selected_cats else st.session_state.wardrobe
+    
+    cols = st.columns(5)
+    for i, item in enumerate(display_items):
+        with cols[i % 5]:
+            st.image(item['image'])
+            if st.button("✏️", key=f"edit_{item['id']}", use_container_width=True):
+                edit_item_dialog(item)
