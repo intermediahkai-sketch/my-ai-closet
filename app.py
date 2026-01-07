@@ -22,7 +22,7 @@ if 'user_profile' not in st.session_state:
     }
 
 st.set_page_config(page_title="AI 私人造型師 Ultimate", page_icon="💃", layout="wide")
-st.title("💃 AI 私人造型師 (永久線上版)")
+st.title("造型師 莫弈")
 
 # --- 側邊欄 ---
 with st.sidebar:
@@ -68,7 +68,7 @@ with st.sidebar:
         st.rerun()
 
 # --- 主畫面 ---
-tab1, tab2 = st.tabs(["👀 瀏覽衣櫃", "✨ AI 智能穿搭"])
+tab1, tab2 = st.tabs(["👀 瀏覽衣櫃", "✨ 智能穿搭"])
 
 with tab1:
     filter_cat = st.multiselect("篩選分類", ["上衣", "下身褲裝", "下身裙裝", "外套"], default=[])
@@ -93,7 +93,7 @@ with tab2:
     with col_w2: temp = st.text_input("氣溫 (°C)", "25")
     with col_w3: occasion = st.text_input("場合", "出街")
 
-    if st.button("🪄 開始分析"):
+    if st.button("開始分析"):
         if len(st.session_state.wardrobe) < 2:
             st.warning("請至少上傳 2 件衣服！")
         else:
