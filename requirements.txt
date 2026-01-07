@@ -1,5 +1,5 @@
 streamlit
 google-generativeai
-rembg
-onnxruntime
+Pillow
 numpy
+rembg[cpu]
