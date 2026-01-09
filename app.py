@@ -32,7 +32,6 @@ st.markdown("""
     section[data-testid="stSidebar"] div.block-container {
         padding-top: 2rem;
     }
-    /* 讓 Pills 排列更整齊 */
     div[data-testid="stPills"] {
         gap: 8px;
         flex-wrap: wrap;
@@ -40,7 +39,6 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
-    /* 試身室樣式 - 背景透明，移除白框與陰影 */
     .fitting-room-box {
         background-color: transparent; 
         border: none;
@@ -49,7 +47,6 @@ st.markdown("""
         text-align: center;
     }
     
-    /* 調整按鈕樣式，讓設定齒輪緊湊一點 */
     button[key="setting_btn"] {
         padding: 0px 10px;
     }
@@ -69,7 +66,6 @@ except:
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
-# --- 試身室狀態管理 ---
 if 'show_fitting_room' not in st.session_state:
     st.session_state.show_fitting_room = False 
 if 'wearing_top' not in st.session_state:
@@ -141,34 +137,46 @@ def get_real_weather(city, user_name="User"):
     except:
         return f"Hi {user_name}, {city} 暫時無法連線。"
 
+# --- 優化 1：圖片壓縮更狠，加快讀取速度 ---
 def encode_image(image):
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((512, 512))
-    image.save(buffered, format="JPEG")
+    # 改為 256x256，夠用且檔案小很多
+    image.thumbnail((256, 256)) 
+    # 降低 JPEG 品質至 60 (肉眼難分，但檔案小一半)
+    image.save(buffered, format="JPEG", quality=60)
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-# --- 新增：Save/Load 輔助函式 ---
+# --- Save/Load 輔助函式 ---
 def convert_wardrobe_to_json():
-    # 將衣櫃數據轉換為可儲存的 JSON 格式 (圖片轉 Base64)
     export_data = []
-    for item in st.session_state.wardrobe:
-        # 複製 item 避免影響原始數據
-        item_copy = item.copy()
-        # 圖片轉字串
-        item_copy['image'] = encode_image(item['image'])
-        export_data.append(item_copy)
+    # 加個 spinner 提示
+    with st.spinner("正在壓縮衣櫃圖片，請稍候..."):
+        for item in st.session_state.wardrobe:
+            item_copy = item.copy()
+            item_copy['image'] = encode_image(item['image'])
+            export_data.append(item_copy)
     return json.dumps(export_data)
 
+# --- 優化 2：讀取時顯示進度條 ---
 def load_wardrobe_from_json(json_file):
     try:
         data = json.load(json_file)
         new_wardrobe = []
-        for item in data:
-            # 字串轉回圖片
+        
+        # 顯示進度條
+        progress_bar = st.progress(0, text="正在搬運衣服...")
+        total_items = len(data)
+        
+        for idx, item in enumerate(data):
             img_data = base64.b64decode(item['image'])
             item['image'] = Image.open(io.BytesIO(img_data))
             new_wardrobe.append(item)
+            # 更新進度
+            progress_bar.progress((idx + 1) / total_items, text=f"正在搬運第 {idx+1}/{total_items} 件...")
+            
+        time.sleep(0.5)
+        progress_bar.empty() # 完成後隱藏進度條
         return new_wardrobe
     except Exception as e:
         st.error(f"讀取失敗: {e}")
@@ -313,7 +321,6 @@ def settings_dialog():
     p = st.session_state.user_profile
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
-    # Update weather if location changes
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc, p['name'])
@@ -439,10 +446,8 @@ with st.sidebar:
             
     st.caption(s['weather_cache']) 
     
-    # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # 定義 callback
     def toggle_fitting_room():
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
 
@@ -450,18 +455,15 @@ with st.sidebar:
     
     st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
     
-    # 試身室面板
     if st.session_state.show_fitting_room:
         st.markdown('<div class="fitting-room-box">', unsafe_allow_html=True)
         st.caption("目前搭配")
         
-        # 上衣區
         if st.session_state.wearing_top is not None and st.session_state.wearing_top < len(st.session_state.wardrobe):
             st.image(st.session_state.wardrobe[st.session_state.wearing_top]['image'])
         else:
             st.markdown("Waiting<br>Top", unsafe_allow_html=True)
 
-        # 褲子區
         if st.session_state.wearing_bottom is not None and st.session_state.wearing_bottom < len(st.session_state.wardrobe):
             st.image(st.session_state.wardrobe[st.session_state.wearing_bottom]['image'])
         else:
@@ -484,13 +486,13 @@ with st.sidebar:
         st.session_state.wearing_bottom = None
         st.rerun()
 
-    # --- 新增：Save/Load 區塊 (放在最下方) ---
+    # --- Save/Load 區塊 ---
     st.divider()
     with st.expander("📂 備份與還原"):
         st.caption("將衣櫃存成檔案，下次再來讀取")
         
-        # 下載按鈕
         if st.session_state.wardrobe:
+            # 這裡也會自動用到新的壓縮邏輯
             json_str = convert_wardrobe_to_json()
             st.download_button(
                 label="💾 下載衣櫃備份 (.json)",
@@ -501,10 +503,8 @@ with st.sidebar:
         else:
             st.button("💾 下載衣櫃備份 (.json)", disabled=True)
 
-        # 上傳還原
         uploaded_backup = st.file_uploader("還原備份", type=["json"], key="backup_loader")
         if uploaded_backup:
-            # 讀取並覆蓋
             loaded_data = load_wardrobe_from_json(uploaded_backup)
             if loaded_data:
                 st.session_state.wardrobe = loaded_data
