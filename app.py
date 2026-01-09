@@ -137,46 +137,51 @@ def get_real_weather(city, user_name="User"):
     except:
         return f"Hi {user_name}, {city} 暫時無法連線。"
 
-# --- 優化 1：圖片壓縮更狠，加快讀取速度 ---
+# --- 優化圖片處理 ---
 def encode_image(image):
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    # 改為 256x256，夠用且檔案小很多
-    image.thumbnail((256, 256)) 
-    # 降低 JPEG 品質至 60 (肉眼難分，但檔案小一半)
-    image.save(buffered, format="JPEG", quality=60)
+    image.thumbnail((300, 300)) # 稍微大一點點保證清晰
+    image.save(buffered, format="JPEG", quality=70)
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-# --- Save/Load 輔助函式 ---
+# --- Save/Load 核心邏輯 (修復顯示問題) ---
 def convert_wardrobe_to_json():
     export_data = []
-    # 加個 spinner 提示
-    with st.spinner("正在壓縮衣櫃圖片，請稍候..."):
+    with st.spinner("正在打包衣櫃..."):
         for item in st.session_state.wardrobe:
             item_copy = item.copy()
             item_copy['image'] = encode_image(item['image'])
             export_data.append(item_copy)
     return json.dumps(export_data)
 
-# --- 優化 2：讀取時顯示進度條 ---
 def load_wardrobe_from_json(json_file):
     try:
-        data = json.load(json_file)
+        # 讀取檔案內容
+        content = json_file.read()
+        data = json.loads(content)
         new_wardrobe = []
         
-        # 顯示進度條
         progress_bar = st.progress(0, text="正在搬運衣服...")
-        total_items = len(data)
+        total = len(data)
         
         for idx, item in enumerate(data):
+            # 解碼
             img_data = base64.b64decode(item['image'])
-            item['image'] = Image.open(io.BytesIO(img_data))
+            # 建立 BytesIO
+            img_buffer = io.BytesIO(img_data)
+            # 打開圖片
+            img = Image.open(img_buffer)
+            # --- 關鍵修復：強制載入數據到記憶體，避免 Buffer 關閉後圖片消失 ---
+            img.load() 
+            # 轉為 RGB 確保兼容性
+            item['image'] = img.convert("RGB")
+            
             new_wardrobe.append(item)
-            # 更新進度
-            progress_bar.progress((idx + 1) / total_items, text=f"正在搬運第 {idx+1}/{total_items} 件...")
+            progress_bar.progress((idx + 1) / total, text=f"還原中... {idx+1}/{total}")
             
         time.sleep(0.5)
-        progress_bar.empty() # 完成後隱藏進度條
+        progress_bar.empty()
         return new_wardrobe
     except Exception as e:
         st.error(f"讀取失敗: {e}")
@@ -492,7 +497,7 @@ with st.sidebar:
         st.caption("將衣櫃存成檔案，下次再來讀取")
         
         if st.session_state.wardrobe:
-            # 這裡也會自動用到新的壓縮邏輯
+            # 會觸發 spinner 讓用戶知道正在壓縮
             json_str = convert_wardrobe_to_json()
             st.download_button(
                 label="💾 下載衣櫃備份 (.json)",
@@ -505,6 +510,7 @@ with st.sidebar:
 
         uploaded_backup = st.file_uploader("還原備份", type=["json"], key="backup_loader")
         if uploaded_backup:
+            # 讀取邏輯更新，會顯示進度條
             loaded_data = load_wardrobe_from_json(uploaded_backup)
             if loaded_data:
                 st.session_state.wardrobe = loaded_data
