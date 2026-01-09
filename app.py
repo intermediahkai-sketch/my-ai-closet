@@ -7,8 +7,7 @@ import requests
 import json
 from PIL import Image
 
-# --- 1. 設定 API Key (安全讀取 Secrets 版) ---
-# 👇 程式會自動去 Streamlit 的 "Secrets" 設定頁找密碼，唔使寫喺度！
+# --- 1. 設定 API Key (從 Secrets 讀取) ---
 try:
     OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 except:
@@ -92,7 +91,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (Requests 直連 Llama) ---
+# --- 4. 核心功能 (Requests 直連 Gemini via OpenRouter) ---
 
 def encode_image(image):
     buffered = io.BytesIO()
@@ -122,8 +121,8 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             })
             
     payload = {
-        # 使用 Llama 3.2 Vision (免費且無地區限制)
-        "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
+        # ✅ 改用 Gemini 2.0 Flash (目前最穩定的免費版)
+        "model": "google/gemini-2.0-flash-exp:free",
         "messages": [
             {"role": "user", "content": content_parts}
         ]
@@ -134,9 +133,12 @@ def ask_openrouter_direct(text_prompt, image_list=None):
         
         if response.status_code == 200:
             data = response.json()
-            content = data['choices'][0]['message']['content']
-            if not content: return "Hmm... 我睇完圖，但唔知講咩好。試下再問多次？"
-            return content
+            if 'choices' in data and len(data['choices']) > 0:
+                content = data['choices'][0]['message']['content']
+                if not content: return "Hmm... 好像有點問題，請再試一次。"
+                return content
+            else:
+                 return f"⚠️ API 回傳格式異常: {data}"
         else:
             return f"⚠️ 連線失敗 (Code {response.status_code}): {response.text}"
             
@@ -277,7 +279,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v8.0 (Secure Llama) | Ready")
+    st.caption(f"System v9.0 (Gemini via OR) | Key Loaded")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
