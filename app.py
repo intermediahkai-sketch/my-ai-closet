@@ -40,15 +40,14 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
-    /* 試身室專用樣式 - 簡潔白底陰影 */
+    /* 修改：試身室樣式 - 背景透明，移除白框與陰影 */
     .fitting-room-box {
-        background-color: #ffffff;
+        background-color: transparent; /* 改為透明 */
         border: none;
-        border-radius: 10px;
         padding: 10px;
-        margin-top: 10px;
+        margin-top: 0px; /* 稍微縮減上方間距 */
         text-align: center;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        /* box-shadow: 0 2px 5px rgba(0,0,0,0.05); 已移除陰影 */
     }
     
     /* 調整按鈕樣式，讓設定齒輪緊湊一點 */
@@ -313,7 +312,6 @@ def settings_dialog():
     f = st.file_uploader("更換頭像 (長方形效果最佳)", type=['png','jpg'])
     if f: s['avatar_image'] = f.getvalue()
     
-    # --- 修改點：人設風格選擇邏輯 ---
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
@@ -325,7 +323,6 @@ def settings_dialog():
             current_preset = k
             break
             
-    # 使用安全的 Index 查找
     try:
         idx = list(presets.keys()).index(current_preset) if current_preset else 0
     except:
@@ -333,11 +330,10 @@ def settings_dialog():
 
     sel_p = st.selectbox("人設風格", list(presets.keys()), index=idx, key="style_select")
     
-    # 修正邏輯：當選擇改變時，強制更新並 Rerun，解決需要點兩次的問題
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
-        st.rerun() # <--- 關鍵修正：強制刷新，讓下方的 text_area 立刻吃到新值
+        st.rerun() 
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -406,8 +402,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # --- 修改點：移除 .stylist-container div 解決灰框問題 ---
-    
+    # 頭像
     if s['avatar_image']: st.image(s['avatar_image'], use_column_width=True)
     else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=100)
     
@@ -422,14 +417,14 @@ with st.sidebar:
             
     st.caption(s['weather_cache']) 
     
-    # 距離收窄：直接顯示按鈕
+    # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # 開關試身室
-    if st.button("🎽 開關試身室", use_container_width=True):
+    # 試身室按鈕 (已修改名稱)
+    if st.button("🎽 試身室", use_container_width=True):
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
     
-    # 試身室面板
+    # 試身室面板 (已移除白框背景)
     if st.session_state.show_fitting_room:
         st.markdown('<div class="fitting-room-box">', unsafe_allow_html=True)
         st.caption("目前搭配")
