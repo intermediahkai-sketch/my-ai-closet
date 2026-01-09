@@ -6,6 +6,7 @@ import time
 import requests
 import json
 import re
+import random # 新增 random 用於模擬 AI
 from PIL import Image
 
 # --- 1. 頁面設定 ---
@@ -37,6 +38,11 @@ st.markdown("""
     }
     section[data-testid="stSidebar"] div.block-container {
         padding-top: 2rem;
+    }
+    /* 優化 Pills (藥丸按鈕) 的間距 */
+    div[data-testid="stPills"] {
+        gap: 10px;
+        flex-wrap: wrap;
     }
     header {visibility: hidden;}
     </style>
@@ -109,9 +115,11 @@ def encode_image(image):
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+# --- 重點修改：AI 繁忙時的自動救援機制 ---
 def ask_openrouter_direct(text_prompt, image_list=None):
+    # 1. 如果沒有 Key，直接進入模擬模式
     if not OPENROUTER_API_KEY:
-        return "⚠️ 請先設定 API Key 才能使用 AI 功能。"
+        return generate_mock_response()
         
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -121,8 +129,12 @@ def ask_openrouter_direct(text_prompt, image_list=None):
         "Content-Type": "application/json"
     }
     content_parts = [{"type": "text", "text": text_prompt}]
+    
+    # 為了省流量和加速，如果圖片太多，只隨機挑選最多 5 張傳給 AI
+    # 但保留全部 ID 在 Prompt 裡供 AI 選擇
     if image_list:
-        for img in image_list:
+        selected_imgs = image_list[:5] 
+        for img in selected_imgs:
             b64 = encode_image(img)
             content_parts.append({
                 "type": "image_url",
@@ -142,7 +154,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             "temperature": 0.7
         }
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=25)
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
             if response.status_code == 200:
                 data = response.json()
                 if 'choices' in data and len(data['choices']) > 0:
@@ -152,7 +164,27 @@ def ask_openrouter_direct(text_prompt, image_list=None):
         except:
             pass
             
-    return "⚠️ 線路繁忙 (API Busy)，AI 暫時無法回應，請稍後再試。"
+    # 2. 如果所有 AI 都連不上，啟動模擬回應 (Fallback)
+    return generate_mock_response()
+
+def generate_mock_response():
+    """當 AI 繁忙時，生成一個假的建議，確保用戶能看到圖片"""
+    wardrobe_len = len(st.session_state.wardrobe)
+    if wardrobe_len == 0:
+        return "⚠️ (AI 忙線中) 你的衣櫃還是空的，快去加點衣服吧！"
+    
+    # 隨機挑 1-2 件衣服
+    pick_count = min(2, wardrobe_len)
+    picked_indices = random.sample(range(wardrobe_len), pick_count)
+    
+    ids_str = " + ".join([f"[ID: {i}]" for i in picked_indices])
+    
+    msgs = [
+        f"⚠️ (AI 連線繁忙，切換至備用線路)\n\n這種天氣，我覺得 {ids_str} 是絕配！試試看？",
+        f"⚠️ (AI 正在休息，這是自動建議)\n\n不用想太多，直接穿 {ids_str} 出門吧，保證回頭率超高。",
+        f"⚠️ (系統忙碌中)\n\n既然你問了，我就推薦 {ids_str}，簡約又時尚。"
+    ]
+    return random.choice(msgs)
 
 def extract_ids_from_text(text):
     ids = re.findall(r"ID[:：]\s*(\d+)", text, re.IGNORECASE)
@@ -184,19 +216,26 @@ def edit_item_dialog(item, real_id):
     c1, c2 = st.columns([1, 1])
     with c1: st.image(item['image'])
     with c2:
-        # 使用 unique key 防止不同衣服混亂
         uid = item['id']
         
+        # --- UI 修改重點：改用 st.pills (按鈕式) ---
         current_cat = item.get('category', '上衣')
         if current_cat not in CATEGORIES: current_cat = CATEGORIES[0]
         
-        new_cat = st.selectbox("分類", CATEGORIES, index=CATEGORIES.index(current_cat), key=f"cat_{uid}")
-        item['category'] = new_cat
+        # 使用 Pills 代替 Selectbox
+        new_cat = st.pills("分類", CATEGORIES, default=current_cat, key=f"cat_{uid}", selection_mode="single")
+        # 防止 pills 返回 None (如果用戶取消選擇)
+        if new_cat: item['category'] = new_cat
+        else: new_cat = current_cat # 保持原值
         
         current_season = item.get('season', '四季')
         if current_season not in SEASONS: current_season = SEASONS[0]
-        item['season'] = st.selectbox("季節", SEASONS, index=SEASONS.index(current_season), key=f"sea_{uid}")
         
+        # 使用 Pills 代替 Selectbox
+        new_season = st.pills("季節", SEASONS, default=current_season, key=f"sea_{uid}", selection_mode="single")
+        if new_season: item['season'] = new_season
+        
+        st.divider()
         st.caption("詳細尺碼")
         if 'size_data' not in item: item['size_data'] = {}
 
@@ -214,61 +253,46 @@ def edit_item_dialog(item, real_id):
             st.session_state.wardrobe.remove(item)
             st.rerun()
 
-# --- 這裡是關鍵修改：找回了詳細設定介面 ---
 @st.dialog("⚙️ 設定")
 def settings_dialog():
     st.subheader("👤 用戶資料")
     p = st.session_state.user_profile
-    
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc)
-    
     p['name'] = st.text_input("暱稱", value=p['name'])
-    
     st.subheader("📏 身體密碼")
     c1, c2, c3 = st.columns(3)
     p['height'] = c1.number_input("身高(cm)", value=p['height'])
     p['weight'] = c2.number_input("體重(kg)", value=p['weight'])
     p['gender'] = c3.selectbox("性別", ["女", "男"], index=0)
-    
     st.caption("三圍 (吋/cm)")
     c4, c5, c6 = st.columns(3)
     p['measurements']['bust'] = c4.number_input("胸", value=p['measurements']['bust'])
     p['measurements']['waist'] = c5.number_input("腰", value=p['measurements']['waist'])
     p['measurements']['hips'] = c6.number_input("臀", value=p['measurements']['hips'])
-
     st.divider()
-
     st.subheader("✨ Stylist 設定")
     s = st.session_state.stylist_profile
     s['name'] = st.text_input("Stylist 名字", value=s['name'])
-    
     f = st.file_uploader("更換頭像 (長方形效果最佳)", type=['png','jpg'])
     if f: s['avatar_image'] = f.getvalue()
-    
-    # --- 找回了人設 Presets ---
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
         "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。"
     }
-    
     current_preset = None
     for k, v in presets.items():
         if v == s['persona']:
             current_preset = k
             break
-            
     sel_p = st.selectbox("人設風格", list(presets.keys()), index=list(presets.keys()).index(current_preset) if current_preset else 0)
-    
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
-
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
-    
     if st.button("完成", type="primary"): st.rerun()
 
 @st.dialog("💬 與 Stylist 對話", width="large")
@@ -305,7 +329,10 @@ def chat_dialog():
                 for i, item in enumerate(st.session_state.wardrobe):
                     img_list.append(item['image'])
                     sys_msg += f"\n- [ID: {i}] {item['category']}"
+                
+                # --- 使用新的 fallback 邏輯 ---
                 reply = ask_openrouter_direct(sys_msg, img_list)
+                
                 found_ids = extract_ids_from_text(reply)
                 st.write(reply)
                 valid_ids = []
@@ -342,9 +369,8 @@ with st.sidebar:
     st.markdown('</div>', unsafe_allow_html=True)
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
 
-    # --- 試身室 (Final Fix) ---
+    # --- 試身室 ---
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
-        # 1. 在繪製選單前，檢查是否有按鈕發出的更新請求
         if 'force_update_top' in st.session_state:
             st.session_state['sb_top'] = st.session_state.pop('force_update_top')
         if 'force_update_bot' in st.session_state:
@@ -362,20 +388,23 @@ with st.sidebar:
             bot_options = bots + [x for x in range(len(st.session_state.wardrobe)) if x not in tops and x not in bots]
 
             c1, c2 = st.columns(2)
-            
             t = c1.selectbox("上", top_options, format_func=lambda x: f"ID:{x}", key="sb_top")
             if t is not None: st.image(st.session_state.wardrobe[t]['image'])
-            
             b = c2.selectbox("下", bot_options, format_func=lambda x: f"ID:{x}", key="sb_bot")
             if b is not None: st.image(st.session_state.wardrobe[b]['image'])
 
     st.divider()
     st.subheader("📥 加入衣櫃")
-    c1, c2 = st.columns(2)
-    cat = c1.selectbox("分類", CATEGORIES) 
-    sea = c2.selectbox("季節", SEASONS)
+    
+    # --- UI 修改重點：側邊欄也改用 Pills ---
+    # 這裡因為空間小，Pills 會自動換行，效果不錯
+    cat = st.pills("分類", CATEGORIES, default=CATEGORIES[0], selection_mode="single")
+    sea = st.pills("季節", SEASONS, default=SEASONS[0], selection_mode="single")
+    
     files = st.file_uploader("圖片", accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
-    if files: process_upload(files, cat, sea)
+    # 注意：pills 可能返回 None，要防錯
+    if files: process_upload(files, cat or CATEGORIES[0], sea or SEASONS[0])
+    
     if st.button("🗑️ 清空"):
         st.session_state.wardrobe = []
         st.rerun()
@@ -410,13 +439,10 @@ else:
                      edit_item_dialog(item, real_id)
             
             with c_try:
-                # --- 試身按鈕 修復版 ---
                 if st.button("👕", key=f"t_{item['id']}"):
                     if item['category'] in ["上衣", "外套", "連身裙"]:
-                        # 不要直接修改 sb_top，改為設定「更新指令」
                         st.session_state['force_update_top'] = real_id
                     else:
                         st.session_state['force_update_bot'] = real_id
-                    
                     st.toast(f"已穿上 ID:{real_id}", icon="✅")
-                    st.rerun() # 重新載入，讓側邊欄執行指令
+                    st.rerun()
