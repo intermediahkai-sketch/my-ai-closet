@@ -3,13 +3,13 @@ import base64
 import io
 import uuid
 import time
-import requests # 改用 Requests 直接連線
+import requests
 import json
 from PIL import Image
 
 # --- 1. 設定 API Key (OpenRouter 直連版) ---
-# 👇 這是你截圖中的 Key，我幫你填好了，直接用！
-OPENROUTER_API_KEY = "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"
+# 👇 請在此填入你用「手機數據 + 新 Email」申請的全新 Key
+OPENROUTER_API_KEY = "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"
 
 # --- 2. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
@@ -98,22 +98,19 @@ def encode_image(image):
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 def ask_openrouter_direct(text_prompt, image_list=None):
-    """
-    使用 Requests 直接發送 HTTP POST，繞過任何 Library 問題
-    """
+    # 檢查 Key 是否已填寫
+    if "sk-or-v1" not in OPENROUTER_API_KEY:
+        return "⚠️ 請先在代碼第 12 行填入你的新 API Key！"
+
     url = "https://openrouter.ai/api/v1/chat/completions"
     
-    # 確保 Key 沒有隱藏空格
-    clean_key = OPENROUTER_API_KEY.strip()
-    
     headers = {
-        "Authorization": f"Bearer {clean_key}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
         "HTTP-Referer": "https://myapp.com",
         "X-Title": "My Stylist App",
         "Content-Type": "application/json"
     }
     
-    # 準備內容
     content_parts = [{"type": "text", "text": text_prompt}]
     
     if image_list:
@@ -125,7 +122,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             })
             
     payload = {
-        "model": "google/gemini-2.0-flash-exp:free", # 免費模型
+        "model": "google/gemini-2.0-flash-exp:free",
         "messages": [
             {"role": "user", "content": content_parts}
         ]
@@ -134,12 +131,11 @@ def ask_openrouter_direct(text_prompt, image_list=None):
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload))
         
-        # 檢查回應
         if response.status_code == 200:
             data = response.json()
             return data['choices'][0]['message']['content']
         else:
-            # 如果失敗，回傳詳細錯誤代碼以便除錯
+            # 如果失敗，回傳詳細錯誤
             return f"⚠️ 連線失敗 (Code {response.status_code}): {response.text}"
             
     except Exception as e:
@@ -270,7 +266,6 @@ def chat_dialog():
                     size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
                     sys_msg += f"\n- 單品 ({item['category']}) 尺碼:{size_str}"
 
-                # 改用直連函數
                 reply = ask_openrouter_direct(sys_msg, img_list)
                 st.write(reply) 
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
@@ -280,7 +275,8 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v6.0 (Requests Direct)")
+    key_status = "✅ 格式正確" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
+    st.caption(f"System v6.1 (Clean Account) | {key_status}")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
