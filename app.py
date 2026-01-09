@@ -1,23 +1,17 @@
 import streamlit as st
-import google.generativeai as genai
+import requests # 改用 Requests 直接連線
+import json
+import base64
 from PIL import Image
 import uuid
 import time
 import random
 
-# ==========================================
-# 👇 請在下方貼上你的 Google AI Studio API Key
-# ==========================================
-MY_DIRECT_KEY = "AIzaSyAznNyRqvkq7DRfkq1a3RyoZXgKOmIF0oo" 
+# --- 1. 設定 API Key ---
+# 這是你截圖中的 Key，我幫你填好了
+MY_DIRECT_KEY = "AIzaSyAznNyRqvkq7DRfkq1a3RyoZXgKOmIF0oo"
 
-# 設定 API
-try:
-    genai.configure(api_key=MY_DIRECT_KEY)
-except Exception as e:
-    # 如果 Key 有問題，這裡不會崩潰，而是會在畫面上顯示錯誤
-    pass
-
-# --- 初始化資料 ---
+# --- 2. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
@@ -47,7 +41,7 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 頁面設定 ---
+# --- 3. 頁面設定 ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
@@ -94,33 +88,62 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 功能函數 ---
+# --- 4. 核心功能 (直連 Google 伺服器) ---
 
-def compress_image(image):
+def image_to_base64(image):
+    """將圖片轉為 Base64 字串，供 API 使用"""
+    buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((512, 512))
-    return image
+    image.thumbnail((512, 512)) # 壓縮
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-def ask_gemini(inputs):
-    """測試連接"""
-    # 如果用戶忘記貼 Key
-    if "在此貼上" in MY_DIRECT_KEY:
-        return "⚠️ 請先在 app.py 第 11 行貼上你的 API Key！"
-
-    models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
-    err_log = []
+def ask_gemini_direct(text_prompt, image_list=None):
+    """
+    使用 Requests 直接發送 HTTP 請求，繞過 Python 庫的檢查
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={MY_DIRECT_KEY}"
     
-    for m in models:
-        try:
-            model = genai.GenerativeModel(m)
-            response = model.generate_content(inputs)
-            return response.text
-        except Exception as e:
-            err_log.append(f"{m}: {str(e)}")
-            continue
+    # 準備內容
+    contents_parts = [{"text": text_prompt}]
+    
+    if image_list:
+        for img in image_list:
+            b64_data = image_to_base64(img)
+            contents_parts.append({
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": b64_data
+                }
+            })
             
-    return f"❌ 全部失敗。請檢查 API Key 是否正確。\n錯誤: {err_log}"
+    payload = {
+        "contents": [{
+            "parts": contents_parts
+        }]
+    }
+    
+    headers = {'Content-Type': 'application/json'}
 
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        result = response.json()
+        
+        # 檢查是否有錯誤
+        if "error" in result:
+            err_msg = result["error"].get("message", "Unknown Error")
+            return f"⚠️ Google 拒絕連線: {err_msg}"
+            
+        # 成功獲取回應
+        if "candidates" in result and result["candidates"]:
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return "⚠️ AI 沒有回應，請重試。"
+            
+    except Exception as e:
+        return f"⚠️ 網絡錯誤: {str(e)}"
+
+# --- 處理上傳 ---
 def process_upload(files, category, season):
     if not files: return
     for file in files:
@@ -139,7 +162,8 @@ def process_upload(files, category, season):
     time.sleep(0.5)
     st.rerun()
 
-# --- Dialogs ---
+# --- 5. Dialogs ---
+import io # 補回 import
 
 @st.dialog("✏️ 編輯單品")
 def edit_item_dialog(item):
@@ -202,7 +226,7 @@ def settings_dialog():
     s['persona'] = st.text_area("指令", value=s['persona'])
     if st.button("完成", type="primary"): st.rerun()
 
-# --- 聊天 ---
+# --- 6. 聊天功能 ---
 @st.dialog("💬 與 Stylist 對話", width="large")
 def chat_dialog():
     s = st.session_state.stylist_profile
@@ -239,26 +263,25 @@ def chat_dialog():
                     f"用戶問：{user_in}\n"
                     f"請從衣櫃給建議 (如有)。"
                 )
-                inputs = [sys_msg]
-                for i, item in enumerate(st.session_state.wardrobe[:5]):
-                    try:
-                        size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
-                        inputs.append(f"單品#{i+1} ({item['category']}) 尺碼:{size_str}")
-                        inputs.append(compress_image(item['image']))
-                    except: pass
                 
-                reply = ask_gemini(inputs)
+                # 準備圖片列表
+                img_list = []
+                for item in st.session_state.wardrobe[:5]:
+                    img_list.append(item['image'])
+                    sys_msg += f"\n- 單品 ({item['category']}) 尺碼: L:{item['size_data']['length']}"
+
+                # 使用新的直連函數
+                reply = ask_gemini_direct(sys_msg, img_list)
+                
                 st.write(reply) 
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
-# --- 主介面 ---
+# --- 7. 主介面 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # Debug Info
-    key_status = "✅ 已設定" if "AIza" in MY_DIRECT_KEY else "❌ 未設定"
-    st.caption(f"System v3.0 | Key: {key_status}")
+    st.caption("Mode: Direct API Connection ⚡️")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
