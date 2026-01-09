@@ -39,7 +39,6 @@ st.markdown("""
     section[data-testid="stSidebar"] div.block-container {
         padding-top: 2rem;
     }
-    /* 讓 Pills 排列更整齊 */
     div[data-testid="stPills"] {
         gap: 8px;
         flex-wrap: wrap;
@@ -47,14 +46,22 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
-    /* 試身室專用樣式 */
+    /* 1. 修改：試身室樣式 - 移除紅框 (border: none) */
     .fitting-room-box {
-        background-color: #ffffff;
-        border: 2px dashed #ff4b4b;
-        border-radius: 10px;
-        padding: 10px;
+        background-color: #f9f9f9;
+        border: none; 
+        border-radius: 15px;
+        padding: 15px;
         margin-top: 10px;
         text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    }
+    /* 調整設定按鈕的樣式，讓它更緊湊 */
+    div.stButton > button {
+        border-radius: 8px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -72,13 +79,12 @@ except:
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
-# --- 新增：試身室狀態管理 ---
 if 'show_fitting_room' not in st.session_state:
-    st.session_state.show_fitting_room = False # 預設隱藏
+    st.session_state.show_fitting_room = False 
 if 'wearing_top' not in st.session_state:
-    st.session_state.wearing_top = None # 儲存 Index
+    st.session_state.wearing_top = None 
 if 'wearing_bottom' not in st.session_state:
-    st.session_state.wearing_bottom = None # 儲存 Index
+    st.session_state.wearing_bottom = None 
 
 if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {
@@ -96,7 +102,7 @@ if 'stylist_profile' not in st.session_state:
         "name": "Kelly", 
         "avatar_image": None, 
         "persona": "一位貼心的專業形象顧問，語氣親切、專業。",
-        "last_preset": None,
+        "last_preset": "專業顧問", # 預設給一個值，避免標題抓不到
         "weather_cache": "查詢中..."
     }
 
@@ -198,23 +204,18 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             
     return generate_mock_response()
 
-# --- 重點修改 2：AI 備用邏輯修正 (解決褲配褲問題) ---
 def generate_mock_response():
     wardrobe = st.session_state.wardrobe
     if not wardrobe:
         return "⚠️ (AI 忙線中) 你的衣櫃還是空的，快去加點衣服吧！"
     
-    # 1. 建立分類池
     tops_indices = [i for i, x in enumerate(wardrobe) if x['category'] in ["上衣", "外套", "連身裙"]]
     bottoms_indices = [i for i, x in enumerate(wardrobe) if x['category'] in ["下身", "褲", "裙"]]
 
-    # 2. 檢查是否有足夠衣服
     if not tops_indices or not bottoms_indices:
-        # 如果缺上身或缺下身，隨機推一件就好
         pick_idx = random.choice(range(len(wardrobe)))
         return f"⚠️ (AI 連線繁忙) 建議你穿上 [ID: {pick_idx}]，但我找不到完整的上衣+褲子搭配，記得去補貨喔！"
 
-    # 3. 各抽一件
     t_idx = random.choice(tops_indices)
     b_idx = random.choice(bottoms_indices)
     
@@ -240,7 +241,7 @@ def process_upload(files, category, season):
                 'id': str(uuid.uuid4()), 
                 'image': img, 
                 'category': category, 
-                'season': season,
+                'season': season, 
                 'size_data': {'length': '', 'width': '', 'waist': ''}
             })
         except: pass
@@ -295,7 +296,6 @@ def settings_dialog():
     p = st.session_state.user_profile
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
-    # Update weather if location changes
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc, p['name'])
@@ -386,13 +386,12 @@ def chat_dialog():
 
 # --- 7. 主程式 ---
 
-# 確保天氣有 User 名字的客製化
 if st.session_state.stylist_profile['weather_cache'] == "查詢中..." or "Hi User" in st.session_state.stylist_profile['weather_cache']:
     loc = st.session_state.user_profile['location']
     name = st.session_state.user_profile['name']
     st.session_state.stylist_profile['weather_cache'] = get_real_weather(loc, name)
 
-# --- 側邊欄 (UI 重點修改 1) ---
+# --- 側邊欄 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
@@ -400,10 +399,16 @@ with st.sidebar:
     if s['avatar_image']: st.image(s['avatar_image'], use_column_width=True)
     else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=100)
     
-    st.markdown(f"### {p['name']} 的專屬 Stylist {s['name']}") 
-    
-    c_gear = st.container()
-    if st.button("⚙️ 設定", use_container_width=True): settings_dialog()
+    # 4. & 5. 修改：標題格式 + Gear Icon 放在名字右邊
+    # 使用 columns 來排列文字和按鈕
+    c_name, c_gear = st.columns([5, 1])
+    with c_name:
+        # 顯示: "你的{人設風格} {Stylist名字}"
+        persona_role = s.get('last_preset', '專屬顧問') # 如果沒有選過，預設為"專屬顧問"
+        st.markdown(f"**你的{persona_role} {s['name']}**")
+    with c_gear:
+        # 只保留 gear icon
+        if st.button("⚙️", key="settings_btn"): settings_dialog()
             
     st.caption(s['weather_cache']) 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -412,30 +417,27 @@ with st.sidebar:
 
     st.divider()
     
-    # --- 新版試身室：按鈕觸發 + 無 Select Box + 下拉顯示 ---
-    
-    # 觸發按鈕
+    # --- 試身室 ---
     if st.button("🎽 開關試身室", use_container_width=True):
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
     
-    # 試身室面板 (只在開啟時顯示)
     if st.session_state.show_fitting_room:
         st.markdown('<div class="fitting-room-box">', unsafe_allow_html=True)
         st.caption("目前搭配")
         
-        c_top, c_bot = st.columns(2)
+        # 2. 修改：移除 st.columns(2)，改為垂直排列 (上下)
         
-        with c_top:
-            if st.session_state.wearing_top is not None and st.session_state.wearing_top < len(st.session_state.wardrobe):
-                st.image(st.session_state.wardrobe[st.session_state.wearing_top]['image'])
-            else:
-                st.markdown("Waiting<br>Top", unsafe_allow_html=True)
+        # 上身區
+        if st.session_state.wearing_top is not None and st.session_state.wearing_top < len(st.session_state.wardrobe):
+            st.image(st.session_state.wardrobe[st.session_state.wearing_top]['image'])
+        else:
+            st.markdown("Waiting Top")
 
-        with c_bot:
-            if st.session_state.wearing_bottom is not None and st.session_state.wearing_bottom < len(st.session_state.wardrobe):
-                st.image(st.session_state.wardrobe[st.session_state.wearing_bottom]['image'])
-            else:
-                st.markdown("Waiting<br>Bottom", unsafe_allow_html=True)
+        # 下身區
+        if st.session_state.wearing_bottom is not None and st.session_state.wearing_bottom < len(st.session_state.wardrobe):
+            st.image(st.session_state.wardrobe[st.session_state.wearing_bottom]['image'])
+        else:
+            st.markdown("Waiting Bottom")
                 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -446,7 +448,6 @@ with st.sidebar:
     sea = st.pills("季節", SEASONS, default=SEASONS[0], selection_mode="single")
     
     files = st.file_uploader("圖片", accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
-    # 加入衣櫃時，不改變 show_fitting_room 狀態
     if files: process_upload(files, cat or CATEGORIES[0], sea or SEASONS[0])
     
     if st.button("🗑️ 清空"):
@@ -471,14 +472,22 @@ else:
         elif season_filter == "春夏" and iseason in ["四季", "春夏"]: filtered_items.append(item)
         elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]: filtered_items.append(item)
 
-    cats_available = list(set([x['category'] for x in filtered_items]))
-    if cats_available:
+    # 3. 修改：加入 "全部" 到分類篩選
+    # 先列出所有有的分類
+    existing_cats = list(set([x['category'] for x in filtered_items]))
+    if existing_cats:
         st.caption("🔍 篩選分類 (可多選)")
-        sel = st.pills("Category Filter", cats_available, selection_mode="multi", label_visibility="collapsed")
+        # 在選項最前面加 "全部"
+        options = ["全部"] + existing_cats
+        sel = st.pills("Category Filter", options, selection_mode="multi", label_visibility="collapsed")
     else:
         sel = []
 
-    final_display = [x for x in filtered_items if x['category'] in sel] if sel else filtered_items
+    # 篩選邏輯：如果沒選，或選了"全部"，則顯示所有
+    if not sel or "全部" in sel:
+        final_display = filtered_items
+    else:
+        final_display = [x for x in filtered_items if x['category'] in sel]
     
     cols = st.columns(5)
     for i, item in enumerate(final_display):
@@ -491,7 +500,6 @@ else:
                 if st.button("✏️", key=f"e_{item['id']}"):
                       edit_item_dialog(item, real_id)
             
-            # --- 穿衣按鈕 (UI 重點修改 3)：只更新變數，不自動打開試身室 ---
             with c_try:
                 if st.button("👕", key=f"t_{item['id']}"):
                     if item['category'] in ["上衣", "外套", "連身裙"]:
@@ -500,5 +508,4 @@ else:
                     else:
                         st.session_state.wearing_bottom = real_id
                         st.toast(f"下身已換: ID {real_id}", icon="👖")
-                    # 這裡不做 st.rerun() 也可以，因為 toast 會自動提示，但為了 sidebar 圖片刷新，建議保留 rerun
                     st.rerun()
