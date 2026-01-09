@@ -75,7 +75,7 @@ if 'user_profile' not in st.session_state:
 
 if 'stylist_profile' not in st.session_state:
     st.session_state.stylist_profile = {
-        "name": "你的專屬 Stylist",
+        "name": "Kelly", # 預設 Stylist 名字
         "avatar_image": None, 
         "persona": "一位貼心的專業形象顧問，語氣親切、專業。",
         "last_preset": None,
@@ -90,7 +90,8 @@ if 'uploader_key' not in st.session_state:
 
 # --- 5. 核心函式 ---
 
-def get_real_weather(city):
+# --- 重點修改：天氣顯示人性化邏輯 ---
+def get_real_weather(city, user_name="User"):
     coords = {
         "香港": {"lat": 22.3193, "lon": 114.1694},
         "台北": {"lat": 25.0330, "lon": 121.5654},
@@ -98,16 +99,35 @@ def get_real_weather(city):
         "首爾": {"lat": 37.5665, "lon": 126.9780},
         "倫敦": {"lat": 51.5074, "lon": -0.1278}
     }
-    if city not in coords: return "未知天氣"
+    
+    default_msg = f"Hi {user_name}, {city} 天氣不錯！"
+    
+    if city not in coords: return default_msg
     try:
         lat, lon = coords[city]["lat"], coords[city]["lon"]
+        # 多抓取 weather_code
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code&timezone=auto"
         res = requests.get(url, timeout=5)
         data = res.json()
+        
         temp = data['current']['temperature_2m']
-        return f"現時 {temp}°C"
+        wcode = data['current']['weather_code']
+        
+        # 解析天氣代碼 (WMO Code)
+        condition_msg = "天氣不錯"
+        if wcode <= 3:
+            condition_msg = "天晴，心情都要靚靚！"
+        elif wcode in [45, 48]:
+            condition_msg = "有霧，出門小心。"
+        elif wcode in [51, 53, 55, 61, 63, 65, 80, 81, 82]:
+            condition_msg = "出面落緊雨，記得帶遮呀！"
+        elif wcode >= 95:
+            condition_msg = "有雷暴，留在室內安全啲！"
+        
+        return f"Hi {user_name}, {city}依家 {temp}°C, {condition_msg}"
+        
     except:
-        return "24°C"
+        return f"Hi {user_name}, {city} 暫時無法連線。"
 
 def encode_image(image):
     buffered = io.BytesIO()
@@ -246,9 +266,12 @@ def settings_dialog():
     st.subheader("👤 用戶資料")
     p = st.session_state.user_profile
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
+    
+    # Update weather if location changes
     if new_loc != p['location']:
         p['location'] = new_loc
-        st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc)
+        st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc, p['name'])
+    
     p['name'] = st.text_input("暱稱", value=p['name'])
     st.subheader("📏 身體密碼")
     c1, c2, c3 = st.columns(3)
@@ -293,7 +316,8 @@ def chat_dialog():
         else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=60)
     with c2:
         st.subheader(s['name'])
-        st.caption(f"📍 {p['location']} | {s['weather_cache']}")
+        # 這裡的 caption 已經是人性化天氣了
+        st.caption(s['weather_cache'])
     st.divider()
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
@@ -312,7 +336,7 @@ def chat_dialog():
             with st.spinner("Stylist 正在思考..."):
                 m = p['measurements']
                 body_info = f"{p['height']}cm/{p['weight']}kg"
-                sys_msg = (f"你是{s['name']}。{s['persona']}\n用戶：{p['name']} ({body_info}), {p['location']} ({s['weather_cache']})。\n用戶問：{user_in}\n**規則：建議單品時，必須明確標註 [ID: 數字]。**\n衣櫃清單：")
+                sys_msg = (f"你是{s['name']}。{s['persona']}\n用戶：{p['name']} ({body_info}), {s['weather_cache']}。\n用戶問：{user_in}\n**規則：建議單品時，必須明確標註 [ID: 數字]。**\n衣櫃清單：")
                 img_list = []
                 for i, item in enumerate(st.session_state.wardrobe):
                     img_list.append(item['image'])
@@ -335,9 +359,11 @@ def chat_dialog():
 
 # --- 7. 主程式 ---
 
-if st.session_state.stylist_profile['weather_cache'] == "查詢中...":
+# 確保天氣有 User 名字的客製化
+if st.session_state.stylist_profile['weather_cache'] == "查詢中..." or "Hi User" in st.session_state.stylist_profile['weather_cache']:
     loc = st.session_state.user_profile['location']
-    st.session_state.stylist_profile['weather_cache'] = get_real_weather(loc)
+    name = st.session_state.user_profile['name']
+    st.session_state.stylist_profile['weather_cache'] = get_real_weather(loc, name)
 
 with st.sidebar:
     s = st.session_state.stylist_profile
@@ -346,16 +372,19 @@ with st.sidebar:
     if s['avatar_image']: st.image(s['avatar_image'], use_column_width=True)
     else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=100)
     
-    c_name, c_gear = st.columns([4, 1])
-    with c_name: st.markdown(f"### {s['name']}")
-    with c_gear: 
-        if st.button("⚙️"): settings_dialog()
+    # --- 修改重點：動態標題 ---
+    st.markdown(f"### {p['name']} 的專屬 Stylist {s['name']}") 
+    
+    c_gear = st.container()
+    if st.button("⚙️ 設定", use_container_width=True): settings_dialog()
             
-    st.caption(f"{p['location']} | {s['weather_cache']}")
+    # --- 修改重點：人性化天氣顯示 ---
+    st.caption(s['weather_cache']) 
     st.markdown('</div>', unsafe_allow_html=True)
+    
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
 
-    # --- 試身室 ---
+    # --- 試身室 (ID 隱形版) ---
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
         if 'force_update_top' in st.session_state:
             st.session_state['sb_top'] = st.session_state.pop('force_update_top')
@@ -374,10 +403,16 @@ with st.sidebar:
             bot_options = bots + [x for x in range(len(st.session_state.wardrobe)) if x not in tops and x not in bots]
 
             c1, c2 = st.columns(2)
-            t = c1.selectbox("上", top_options, format_func=lambda x: f"ID:{x}", key="sb_top")
-            if t is not None: st.image(st.session_state.wardrobe[t]['image'])
-            b = c2.selectbox("下", bot_options, format_func=lambda x: f"ID:{x}", key="sb_bot")
-            if b is not None: st.image(st.session_state.wardrobe[b]['image'])
+            
+            # --- 修改重點：隱藏 ID 文字，只顯示序號 ---
+            t = c1.selectbox("上", top_options, format_func=lambda x: f"#{x+1}", key="sb_top")
+            if t is not None: 
+                # 這裡的 image 不加 caption，實現「只看圖」
+                st.image(st.session_state.wardrobe[t]['image']) 
+            
+            b = c2.selectbox("下", bot_options, format_func=lambda x: f"#{x+1}", key="sb_bot")
+            if b is not None: 
+                st.image(st.session_state.wardrobe[b]['image'])
 
     st.divider()
     st.subheader("📥 加入衣櫃")
@@ -395,10 +430,8 @@ with st.sidebar:
 # 主畫面
 st.subheader("🧥 我的衣櫃")
 
-# --- UI 修改重點：改用 Pills ---
-# 1. 季節篩選 (單選，模仿 Tab 效果)
 season_filter = st.pills("季節篩選", ["全部", "春夏", "秋冬"], default="全部", selection_mode="single")
-if not season_filter: season_filter = "全部" # 防止取消選擇時變成 None
+if not season_filter: season_filter = "全部"
 
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
@@ -410,9 +443,7 @@ else:
         elif season_filter == "春夏" and iseason in ["四季", "春夏"]: filtered_items.append(item)
         elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]: filtered_items.append(item)
 
-    # 2. 分類篩選 (多選，取代 Multiselect)
     cats_available = list(set([x['category'] for x in filtered_items]))
-    # 增加 caption 讓排版好看一點，因為 Pills 預設沒有 placeholder 文字
     if cats_available:
         st.caption("🔍 篩選分類 (可多選)")
         sel = st.pills("Category Filter", cats_available, selection_mode="multi", label_visibility="collapsed")
