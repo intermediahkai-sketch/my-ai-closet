@@ -7,8 +7,8 @@ import requests
 import json
 from PIL import Image
 
-# --- 1. 設定 API Key (OpenRouter 直連版) ---
-# 👇 請在此填入你用「手機數據 + 新 Email」申請的全新 Key
+# --- 1. 設定 API Key (OpenRouter Llama 版) ---
+# 👇 這是你剛剛給我的最新 Key，我已經填好了！
 OPENROUTER_API_KEY = "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"
 
 # --- 2. 初始化資料 ---
@@ -88,7 +88,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (Requests 直連) ---
+# --- 4. 核心功能 (Requests 直連 Llama) ---
 
 def encode_image(image):
     buffered = io.BytesIO()
@@ -98,10 +98,6 @@ def encode_image(image):
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 def ask_openrouter_direct(text_prompt, image_list=None):
-    # 檢查 Key 是否已填寫
-    if "sk-or-v1" not in OPENROUTER_API_KEY:
-        return "⚠️ 請先在代碼第 12 行填入你的新 API Key！"
-
     url = "https://openrouter.ai/api/v1/chat/completions"
     
     headers = {
@@ -122,7 +118,8 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             })
             
     payload = {
-        "model": "google/gemini-2.0-flash-exp:free",
+        # 改用 Llama 3.2 Vision，完全避開 Google 的地區限制
+        "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
         "messages": [
             {"role": "user", "content": content_parts}
         ]
@@ -135,7 +132,6 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             data = response.json()
             return data['choices'][0]['message']['content']
         else:
-            # 如果失敗，回傳詳細錯誤
             return f"⚠️ 連線失敗 (Code {response.status_code}): {response.text}"
             
     except Exception as e:
@@ -275,8 +271,8 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    key_status = "✅ 格式正確" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
-    st.caption(f"System v6.1 (Clean Account) | {key_status}")
+    # 顯示 Key 狀態
+    st.caption(f"System v7.0 (Llama/New Key) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
