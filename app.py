@@ -1,15 +1,21 @@
 import streamlit as st
-import requests # 改用 Requests 直接連線
-import json
 import base64
-from PIL import Image
+import io
 import uuid
 import time
 import random
+from PIL import Image
+from openai import OpenAI
 
-# --- 1. 設定 API Key ---
-# 這是你截圖中的 Key，我幫你填好了
-MY_DIRECT_KEY = "AIzaSyAznNyRqvkq7DRfkq1a3RyoZXgKOmIF0oo"
+# --- 1. 設定 API Key (OpenRouter 版) ---
+# 👇 請將你的 sk-or-v1-... Key 貼在下面引號內
+OPENROUTER_API_KEY = "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" 
+
+# 設定 OpenRouter 客戶端 (這是關鍵：連線去 OpenRouter 而不是 Google)
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
 # --- 2. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
@@ -41,7 +47,7 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 3. 頁面設定 ---
+# --- 3. 頁面設定與 CSS (保留你喜歡的 UI) ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
@@ -88,60 +94,55 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (直連 Google 伺服器) ---
+# --- 4. 核心功能 (OpenRouter 連線) ---
 
-def image_to_base64(image):
-    """將圖片轉為 Base64 字串，供 API 使用"""
+def encode_image(image):
+    """將圖片轉為 Base64"""
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((512, 512)) # 壓縮
+    image.thumbnail((512, 512)) # 壓縮圖片
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-def ask_gemini_direct(text_prompt, image_list=None):
+def ask_openrouter(text_prompt, image_list=None):
     """
-    使用 Requests 直接發送 HTTP 請求，繞過 Python 庫的檢查
+    使用 OpenRouter API 進行對話
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={MY_DIRECT_KEY}"
+    if "sk-or-v1" not in OPENROUTER_API_KEY:
+        return "⚠️ 請先在代碼第 12 行貼上你的 OpenRouter Key！"
+
+    messages_content = [{"type": "text", "text": text_prompt}]
     
-    # 準備內容
-    contents_parts = [{"text": text_prompt}]
-    
+    # 加入圖片
     if image_list:
         for img in image_list:
-            b64_data = image_to_base64(img)
-            contents_parts.append({
-                "inline_data": {
-                    "mime_type": "image/jpeg",
-                    "data": b64_data
+            base64_image = encode_image(img)
+            messages_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
                 }
             })
-            
-    payload = {
-        "contents": [{
-            "parts": contents_parts
-        }]
-    }
-    
-    headers = {'Content-Type': 'application/json'}
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        result = response.json()
-        
-        # 檢查是否有錯誤
-        if "error" in result:
-            err_msg = result["error"].get("message", "Unknown Error")
-            return f"⚠️ Google 拒絕連線: {err_msg}"
-            
-        # 成功獲取回應
-        if "candidates" in result and result["candidates"]:
-            return result["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            return "⚠️ AI 沒有回應，請重試。"
-            
+        completion = client.chat.completions.create(
+            # 使用 Google 最新的 Gemini 2.0 Flash (免費且極快)
+            model="google/gemini-2.0-flash-exp:free", 
+            messages=[
+                {
+                    "role": "user",
+                    "content": messages_content
+                }
+            ],
+            # OpenRouter 特定標頭 (必須)
+            extra_headers={
+                "HTTP-Referer": "https://myapp.com", 
+                "X-Title": "My Stylist App",
+            }
+        )
+        return completion.choices[0].message.content
     except Exception as e:
-        return f"⚠️ 網絡錯誤: {str(e)}"
+        return f"⚠️ OpenRouter 連線錯誤: {str(e)}"
 
 # --- 處理上傳 ---
 def process_upload(files, category, season):
@@ -163,7 +164,6 @@ def process_upload(files, category, season):
     st.rerun()
 
 # --- 5. Dialogs ---
-import io # 補回 import
 
 @st.dialog("✏️ 編輯單品")
 def edit_item_dialog(item):
@@ -264,15 +264,14 @@ def chat_dialog():
                     f"請從衣櫃給建議 (如有)。"
                 )
                 
-                # 準備圖片列表
+                # 準備圖片 (只傳前 3 張)
                 img_list = []
-                for item in st.session_state.wardrobe[:5]:
+                for item in st.session_state.wardrobe[:3]:
                     img_list.append(item['image'])
-                    sys_msg += f"\n- 單品 ({item['category']}) 尺碼: L:{item['size_data']['length']}"
+                    size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
+                    sys_msg += f"\n- 單品 ({item['category']}) 尺碼:{size_str}"
 
-                # 使用新的直連函數
-                reply = ask_gemini_direct(sys_msg, img_list)
-                
+                reply = ask_openrouter(sys_msg, img_list)
                 st.write(reply) 
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
@@ -281,7 +280,9 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption("Mode: Direct API Connection ⚡️")
+    # Key Status
+    key_status = "✅ OpenRouter Ready" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
+    st.caption(f"System v5.0 (OpenRouter) | {key_status}")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
@@ -324,11 +325,4 @@ if not st.session_state.wardrobe:
 else:
     cats = list(set([x['category'] for x in st.session_state.wardrobe]))
     sel = st.multiselect("🔍", cats, placeholder="篩選分類")
-    items = [x for x in st.session_state.wardrobe if x['category'] in sel] if sel else st.session_state.wardrobe
-    
-    cols = st.columns(5)
-    for i, item in enumerate(items):
-        with cols[i % 5]:
-            st.image(item['image'])
-            if st.button("✏️", key=f"e_{item['id']}", use_container_width=True):
-                edit_item_dialog(item)
+    items = [x for x in st.session_
