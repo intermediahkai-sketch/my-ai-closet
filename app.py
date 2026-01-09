@@ -184,13 +184,12 @@ def edit_item_dialog(item, real_id):
     c1, c2 = st.columns([1, 1])
     with c1: st.image(item['image'])
     with c2:
-        # 修復 1: 使用 unique key，防止不同衣服的狀態混亂
+        # 使用 unique key 防止不同衣服混亂
         uid = item['id']
         
         current_cat = item.get('category', '上衣')
         if current_cat not in CATEGORIES: current_cat = CATEGORIES[0]
         
-        # 這裡的 key=f"cat_{uid}" 是關鍵，保證每件衣服的輸入框是獨立的
         new_cat = st.selectbox("分類", CATEGORIES, index=CATEGORIES.index(current_cat), key=f"cat_{uid}")
         item['category'] = new_cat
         
@@ -219,12 +218,10 @@ def edit_item_dialog(item, real_id):
 def settings_dialog():
     st.subheader("👤 用戶資料")
     p = st.session_state.user_profile
-    
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc)
-    
     p['name'] = st.text_input("暱稱", value=p['name'])
     st.divider()
     s = st.session_state.stylist_profile
@@ -253,11 +250,9 @@ def chat_dialog():
                         with cols[idx]:
                             item = st.session_state.wardrobe[item_id]
                             st.image(item['image'], caption=f"ID: {item_id}")
-
     if user_in := st.chat_input("想問咩？"):
         st.session_state.chat_history.append({"role": "user", "content": user_in})
         with st.chat_message("user"): st.write(user_in)
-        
         with st.chat_message("assistant"):
             with st.spinner("Stylist 正在思考..."):
                 m = p['measurements']
@@ -267,11 +262,9 @@ def chat_dialog():
                 for i, item in enumerate(st.session_state.wardrobe):
                     img_list.append(item['image'])
                     sys_msg += f"\n- [ID: {i}] {item['category']}"
-
                 reply = ask_openrouter_direct(sys_msg, img_list)
                 found_ids = extract_ids_from_text(reply)
                 st.write(reply)
-                
                 valid_ids = []
                 if found_ids:
                     st.caption("✨ 建議搭配：")
@@ -306,8 +299,14 @@ with st.sidebar:
     st.markdown('</div>', unsafe_allow_html=True)
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
 
-    # --- 試身室 (修復版 2.0) ---
+    # --- 試身室 (Final Fix) ---
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
+        # 1. 在繪製選單前，檢查是否有按鈕發出的更新請求
+        if 'force_update_top' in st.session_state:
+            st.session_state['sb_top'] = st.session_state.pop('force_update_top')
+        if 'force_update_bot' in st.session_state:
+            st.session_state['sb_bot'] = st.session_state.pop('force_update_bot')
+
         if not st.session_state.wardrobe:
             st.caption("衣櫃是空的")
         else:
@@ -321,7 +320,6 @@ with st.sidebar:
 
             c1, c2 = st.columns(2)
             
-            # 使用 session_state key 來控制選單
             t = c1.selectbox("上", top_options, format_func=lambda x: f"ID:{x}", key="sb_top")
             if t is not None: st.image(st.session_state.wardrobe[t]['image'])
             
@@ -369,14 +367,13 @@ else:
                      edit_item_dialog(item, real_id)
             
             with c_try:
-                # --- 試身按鈕 2.0: 強制更新 State ---
+                # --- 試身按鈕 修復版 ---
                 if st.button("👕", key=f"t_{item['id']}"):
                     if item['category'] in ["上衣", "外套", "連身裙"]:
-                        # 直接把左邊選單的 key 值改成這個 ID
-                        st.session_state['sb_top'] = real_id
+                        # 不要直接修改 sb_top，改為設定「更新指令」
+                        st.session_state['force_update_top'] = real_id
                     else:
-                        st.session_state['sb_bot'] = real_id
+                        st.session_state['force_update_bot'] = real_id
                     
                     st.toast(f"已穿上 ID:{real_id}", icon="✅")
-                    # 強制刷新頁面，讓左邊選單吃到新的 session_state 值
-                    st.rerun()
+                    st.rerun() # 重新載入，讓側邊欄執行指令
