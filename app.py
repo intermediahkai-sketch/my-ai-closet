@@ -8,7 +8,7 @@ import json
 import re
 from PIL import Image
 
-# --- 1. 設定 API Key ---
+# --- 1. 設定 API Key (從 Secrets 讀取) ---
 try:
     OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 except:
@@ -45,11 +45,12 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 3. 頁面設定 ---
+# --- 3. 頁面設定 (還原至 V11 Perfect Layout) ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
     <style>
+    /* 還原 V11 的圖片設定，確保頭像不會變形 */
     div[data-testid="stImage"] {
         background-color: #f9f9f9;
         border-radius: 10px;
@@ -59,7 +60,7 @@ st.markdown("""
         align-items: center;
     }
     div[data-testid="stImage"] img {
-        height: 180px !important; 
+        height: 220px !important;  /* 還原高度 */
         object-fit: contain !important;
     }
     .stylist-container {
@@ -88,10 +89,7 @@ st.markdown("""
         height: 100%;
         object-fit: cover;
     }
-    /* 調整按鈕樣式 */
-    div[data-testid="column"] button {
-        margin-top: 0px;
-    }
+    button[kind="secondary"] { border: 1px solid #ddd; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -123,6 +121,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
             })
     
+    # 智能重試 + 模型切換
     models_to_try = [
         "google/gemini-2.0-flash-exp:free",
         "google/gemini-1.5-flash:free",
@@ -149,6 +148,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
     return "⚠️ 線路繁忙，請稍後再試。"
 
 def extract_ids_from_text(text):
+    """從 AI 回覆中找出 [ID: x] 的編號"""
     ids = re.findall(r"ID[:：]\s*(\d+)", text, re.IGNORECASE)
     return [int(id_str) for id_str in ids]
 
@@ -218,27 +218,22 @@ def settings_dialog():
         s['avatar_type'] = 'emoji'
         s['avatar_emoji'] = st.text_input("Emoji", value=s['avatar_emoji'])
     
-    # --- 👇 這裡修復了！預設人設選單回來了！ ---
-    st.markdown("#### 🎭 人設風格 (Presets)")
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
         "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。",
-        "霸道總裁": "強勢但寵溺的總裁，不准穿太露。",
-        "星級化妝師": "著重整體妝髮搭配的造型師，說話帶點英倫腔。"
+        "霸道總裁": "強勢但寵溺的總裁，不准穿太露。"
     }
     
-    selected_p = st.selectbox("快速選擇風格", list(presets.keys()))
-    if st.button("⬇️ 套用此風格"):
+    selected_p = st.selectbox("人設風格", list(presets.keys()))
+    if st.button("⬇️ 套用人設"):
         s['persona'] = presets[selected_p]
         st.success(f"已切換為：{selected_p}")
         time.sleep(0.5)
         st.rerun()
     
-    s['persona'] = st.text_area("自訂指令 (Persona)", value=s['persona'], height=100)
-    
-    if st.button("完成並儲存", type="primary", use_container_width=True):
-        st.rerun()
+    s['persona'] = st.text_area("指令", value=s['persona'])
+    if st.button("完成", type="primary"): st.rerun()
 
 # --- 6. 聊天功能 ---
 @st.dialog("💬 與 Stylist 對話", width="large")
@@ -249,6 +244,7 @@ def chat_dialog():
     c1, c2 = st.columns([1, 4])
     with c1:
         if s['avatar_type'] == 'image' and s['avatar_image']:
+            # 這裡用 st.image 時，它會受 global CSS 影響，所以必須確保 Global CSS 是你喜歡的那個
             try: st.image(s['avatar_image'], width=60)
             except: st.write(s['avatar_emoji'])
         else:
@@ -259,6 +255,7 @@ def chat_dialog():
 
     st.divider()
 
+    # 顯示歷史訊息
     for msg in st.session_state.chat_history:
         role = msg["role"]
         with st.chat_message(role):
@@ -269,6 +266,7 @@ def chat_dialog():
                     if 0 <= item_id < len(st.session_state.wardrobe):
                         with cols[idx]:
                             item = st.session_state.wardrobe[item_id]
+                            # 這裡不需要自訂 CSS，讓它跟隨 Global，或者可以手動設 width
                             st.image(item['image'], caption=f"ID: {item_id}")
 
     if user_in := st.chat_input("想問咩？"):
@@ -292,6 +290,7 @@ def chat_dialog():
                     sys_msg += f"\n- [ID: {i}] {item['category']} (尺碼:{size_str})"
 
                 reply = ask_openrouter_direct(sys_msg, img_list)
+                
                 found_ids = extract_ids_from_text(reply)
                 
                 st.write(reply)
@@ -319,7 +318,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v13.0 (Fixed UI) | Ready")
+    st.caption(f"System v13.0 (Restored UI) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
@@ -330,16 +329,13 @@ with st.sidebar:
         st.markdown(s['avatar_emoji'])
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # --- 👇 這裡修改了 UI！名字和 Gear Icon 並排 ---
-    c_name, c_gear = st.columns([4, 1])
-    with c_name:
-        st.markdown(f"<h3 style='margin:0; padding:0; text-align:right'>{s['name']}</h3>", unsafe_allow_html=True)
-    with c_gear:
-        # 小小的 Gear Icon 按鈕
-        if st.button("⚙️", key="setting_btn_sidebar", help="設定 Stylist"):
-            settings_dialog()
+    st.markdown(f"<h3>{s['name']}</h3>", unsafe_allow_html=True)
     
-    st.markdown(f"<div style='text-align:center; color:grey; margin-top:5px'>早安 {p['name']} | {s['current_weather']}</div>", unsafe_allow_html=True)
+    c_btn = st.columns([1,2,1])
+    with c_btn[1]:
+        if st.button("⚙️ 設定"): settings_dialog()
+    
+    st.caption(f"早安 {p['name']} | {s['current_weather']}")
     st.markdown('</div>', unsafe_allow_html=True)
     
     if st.button("💬 開始對話", type="primary", use_container_width=True):
