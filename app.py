@@ -195,6 +195,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             
     return generate_mock_response()
 
+# --- AI 備用邏輯 ---
 def generate_mock_response():
     wardrobe = st.session_state.wardrobe
     if not wardrobe:
@@ -418,16 +419,12 @@ with st.sidebar:
     # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # --- 修正重點：使用 callback 解決按鈕文字不同步問題 ---
-    
-    # 定義切換狀態的 callback
+    # 定義 callback (重點修復：按鈕即時反應)
     def toggle_fitting_room():
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
 
-    # 根據當前狀態決定按鈕文字
     room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
     
-    # 綁定 callback
     st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
     
     # 試身室面板 (已移除白框背景)
