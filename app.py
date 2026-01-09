@@ -7,9 +7,13 @@ import requests
 import json
 from PIL import Image
 
-# --- 1. 設定 API Key (OpenRouter Llama 版) ---
-# 👇 這是你剛剛給我的最新 Key，我已經幫你填好了！
-OPENROUTER_API_KEY = "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"
+# --- 1. 設定 API Key (安全讀取 Secrets 版) ---
+# 👇 程式會自動去 Streamlit 的 "Secrets" 設定頁找密碼，唔使寫喺度！
+try:
+    OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+except:
+    st.error("⚠️ 找不到 API Key！請去 Streamlit 網頁版 -> Settings -> Secrets 貼上 Key。")
+    st.stop()
 
 # --- 2. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
@@ -118,7 +122,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             })
             
     payload = {
-        # 改用 Llama 3.2 Vision，完全避開 Google 的地區限制
+        # 使用 Llama 3.2 Vision (免費且無地區限制)
         "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
         "messages": [
             {"role": "user", "content": content_parts}
@@ -130,7 +134,6 @@ def ask_openrouter_direct(text_prompt, image_list=None):
         
         if response.status_code == 200:
             data = response.json()
-            # Llama 有時會回傳空內容，加個保險
             content = data['choices'][0]['message']['content']
             if not content: return "Hmm... 我睇完圖，但唔知講咩好。試下再問多次？"
             return content
@@ -274,8 +277,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 顯示 Key 狀態
-    st.caption(f"System v7.0 (Llama) | Ready")
+    st.caption(f"System v8.0 (Secure Llama) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
