@@ -9,10 +9,15 @@ import re
 import random
 from PIL import Image
 
-# --- 1. 頁面設定 ---
-st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
+# --- 1. 頁面設定 (強制展開側邊欄) ---
+st.set_page_config(
+    page_title="My Stylist", 
+    page_icon="👗", 
+    layout="wide", 
+    initial_sidebar_state="expanded" # <--- 關鍵修改：嘗試強制展開
+)
 
-# --- 2. CSS (保持乾淨設定) ---
+# --- 2. CSS ---
 st.markdown("""
     <style>
     div[data-testid="stImage"] {
@@ -141,7 +146,6 @@ def get_real_weather(city, user_name="User"):
     except:
         return f"Hi {user_name}, {city} 暫時無法連線。"
 
-# 這個 encode_image 仍需保留給 API 調用使用
 def encode_image(image):
     buffered = io.BytesIO()
     image = image.convert('RGB')
@@ -196,7 +200,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             
     return generate_mock_response()
 
-# --- AI 備用邏輯 (確保有上衣有下身) ---
+# --- AI 備用邏輯 ---
 def generate_mock_response():
     wardrobe = st.session_state.wardrobe
     if not wardrobe:
@@ -289,6 +293,7 @@ def settings_dialog():
     p = st.session_state.user_profile
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
+    # Update weather if location changes
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc, p['name'])
@@ -329,10 +334,10 @@ def settings_dialog():
 
     sel_p = st.selectbox("人設風格", list(presets.keys()), index=idx, key="style_select")
     
-    # 保持人設選擇不彈走
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
+        # 這裡不加 st.rerun()，以防 Dialog 閃退，Streamlit 會自動更新 UI
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -396,7 +401,7 @@ if st.session_state.stylist_profile['weather_cache'] == "查詢中..." or "Hi Us
     name = st.session_state.user_profile['name']
     st.session_state.stylist_profile['weather_cache'] = get_real_weather(loc, name)
 
-# --- 側邊欄 ---
+# --- 側邊欄 (還原為你習慣的 Sidebar 佈局) ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
@@ -419,7 +424,7 @@ with st.sidebar:
     # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # --- 重點修復：使用 callback 解決按鈕文字不同步問題 ---
+    # --- 修正重點：使用 callback 解決按鈕文字不同步問題 ---
     def toggle_fitting_room():
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
 
