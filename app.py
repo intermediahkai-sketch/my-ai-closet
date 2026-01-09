@@ -6,7 +6,7 @@ import time
 import requests
 import json
 import re
-import random # 新增 random 用於模擬 AI
+import random
 from PIL import Image
 
 # --- 1. 頁面設定 ---
@@ -39,10 +39,11 @@ st.markdown("""
     section[data-testid="stSidebar"] div.block-container {
         padding-top: 2rem;
     }
-    /* 優化 Pills (藥丸按鈕) 的間距 */
+    /* 讓 Pills 排列更整齊 */
     div[data-testid="stPills"] {
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
+        margin-bottom: 10px;
     }
     header {visibility: hidden;}
     </style>
@@ -115,9 +116,7 @@ def encode_image(image):
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-# --- 重點修改：AI 繁忙時的自動救援機制 ---
 def ask_openrouter_direct(text_prompt, image_list=None):
-    # 1. 如果沒有 Key，直接進入模擬模式
     if not OPENROUTER_API_KEY:
         return generate_mock_response()
         
@@ -130,8 +129,6 @@ def ask_openrouter_direct(text_prompt, image_list=None):
     }
     content_parts = [{"type": "text", "text": text_prompt}]
     
-    # 為了省流量和加速，如果圖片太多，只隨機挑選最多 5 張傳給 AI
-    # 但保留全部 ID 在 Prompt 裡供 AI 選擇
     if image_list:
         selected_imgs = image_list[:5] 
         for img in selected_imgs:
@@ -164,19 +161,15 @@ def ask_openrouter_direct(text_prompt, image_list=None):
         except:
             pass
             
-    # 2. 如果所有 AI 都連不上，啟動模擬回應 (Fallback)
     return generate_mock_response()
 
 def generate_mock_response():
-    """當 AI 繁忙時，生成一個假的建議，確保用戶能看到圖片"""
     wardrobe_len = len(st.session_state.wardrobe)
     if wardrobe_len == 0:
         return "⚠️ (AI 忙線中) 你的衣櫃還是空的，快去加點衣服吧！"
     
-    # 隨機挑 1-2 件衣服
     pick_count = min(2, wardrobe_len)
     picked_indices = random.sample(range(wardrobe_len), pick_count)
-    
     ids_str = " + ".join([f"[ID: {i}]" for i in picked_indices])
     
     msgs = [
@@ -217,21 +210,16 @@ def edit_item_dialog(item, real_id):
     with c1: st.image(item['image'])
     with c2:
         uid = item['id']
-        
-        # --- UI 修改重點：改用 st.pills (按鈕式) ---
         current_cat = item.get('category', '上衣')
         if current_cat not in CATEGORIES: current_cat = CATEGORIES[0]
         
-        # 使用 Pills 代替 Selectbox
         new_cat = st.pills("分類", CATEGORIES, default=current_cat, key=f"cat_{uid}", selection_mode="single")
-        # 防止 pills 返回 None (如果用戶取消選擇)
         if new_cat: item['category'] = new_cat
-        else: new_cat = current_cat # 保持原值
+        else: new_cat = current_cat 
         
         current_season = item.get('season', '四季')
         if current_season not in SEASONS: current_season = SEASONS[0]
         
-        # 使用 Pills 代替 Selectbox
         new_season = st.pills("季節", SEASONS, default=current_season, key=f"sea_{uid}", selection_mode="single")
         if new_season: item['season'] = new_season
         
@@ -330,9 +318,7 @@ def chat_dialog():
                     img_list.append(item['image'])
                     sys_msg += f"\n- [ID: {i}] {item['category']}"
                 
-                # --- 使用新的 fallback 邏輯 ---
                 reply = ask_openrouter_direct(sys_msg, img_list)
-                
                 found_ids = extract_ids_from_text(reply)
                 st.write(reply)
                 valid_ids = []
@@ -396,13 +382,10 @@ with st.sidebar:
     st.divider()
     st.subheader("📥 加入衣櫃")
     
-    # --- UI 修改重點：側邊欄也改用 Pills ---
-    # 這裡因為空間小，Pills 會自動換行，效果不錯
     cat = st.pills("分類", CATEGORIES, default=CATEGORIES[0], selection_mode="single")
     sea = st.pills("季節", SEASONS, default=SEASONS[0], selection_mode="single")
     
     files = st.file_uploader("圖片", accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
-    # 注意：pills 可能返回 None，要防錯
     if files: process_upload(files, cat or CATEGORIES[0], sea or SEASONS[0])
     
     if st.button("🗑️ 清空"):
@@ -411,7 +394,11 @@ with st.sidebar:
 
 # 主畫面
 st.subheader("🧥 我的衣櫃")
-season_filter = st.radio("季節篩選", ["全部", "春夏", "秋冬"], index=0, horizontal=True, label_visibility="collapsed")
+
+# --- UI 修改重點：改用 Pills ---
+# 1. 季節篩選 (單選，模仿 Tab 效果)
+season_filter = st.pills("季節篩選", ["全部", "春夏", "秋冬"], default="全部", selection_mode="single")
+if not season_filter: season_filter = "全部" # 防止取消選擇時變成 None
 
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
@@ -423,8 +410,15 @@ else:
         elif season_filter == "春夏" and iseason in ["四季", "春夏"]: filtered_items.append(item)
         elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]: filtered_items.append(item)
 
+    # 2. 分類篩選 (多選，取代 Multiselect)
     cats_available = list(set([x['category'] for x in filtered_items]))
-    sel = st.multiselect("🔍", cats_available, placeholder="篩選分類")
+    # 增加 caption 讓排版好看一點，因為 Pills 預設沒有 placeholder 文字
+    if cats_available:
+        st.caption("🔍 篩選分類 (可多選)")
+        sel = st.pills("Category Filter", cats_available, selection_mode="multi", label_visibility="collapsed")
+    else:
+        sel = []
+
     final_display = [x for x in filtered_items if x['category'] in sel] if sel else filtered_items
     
     cols = st.columns(5)
