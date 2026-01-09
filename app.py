@@ -195,7 +195,6 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             
     return generate_mock_response()
 
-# --- AI 備用邏輯 ---
 def generate_mock_response():
     wardrobe = st.session_state.wardrobe
     if not wardrobe:
@@ -329,12 +328,10 @@ def settings_dialog():
 
     sel_p = st.selectbox("人設風格", list(presets.keys()), index=idx, key="style_select")
     
-    # --- 修正重點 2：移除 st.rerun() ---
-    # 只要這裡更新了 s['persona']，下方的 text_area 在本次渲染就會拿到新值
-    # Streamlit 的 selectbox 改變會自動重新執行此函數，不需要手動 rerun，手動 rerun 會導致 Dialog 關閉
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
+        # 這裡不加 st.rerun()，以防 Dialog 閃退，Streamlit 會自動更新 UI
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -421,11 +418,17 @@ with st.sidebar:
     # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # --- 修正重點 1：動態按鈕文字 ---
+    # --- 修正重點：使用 callback 解決按鈕文字不同步問題 ---
+    
+    # 定義切換狀態的 callback
+    def toggle_fitting_room():
+        st.session_state.show_fitting_room = not st.session_state.show_fitting_room
+
+    # 根據當前狀態決定按鈕文字
     room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
     
-    if st.button(room_btn_label, use_container_width=True):
-        st.session_state.show_fitting_room = not st.session_state.show_fitting_room
+    # 綁定 callback
+    st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
     
     # 試身室面板 (已移除白框背景)
     if st.session_state.show_fitting_room:
