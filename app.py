@@ -8,7 +8,7 @@ import json
 from PIL import Image
 
 # --- 1. 設定 API Key (OpenRouter Llama 版) ---
-# 👇 這是你剛剛給我的最新 Key，我已經填好了！
+# 👇 這是你剛剛給我的最新 Key，我已經幫你填好了！
 OPENROUTER_API_KEY = "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"
 
 # --- 2. 初始化資料 ---
@@ -130,7 +130,10 @@ def ask_openrouter_direct(text_prompt, image_list=None):
         
         if response.status_code == 200:
             data = response.json()
-            return data['choices'][0]['message']['content']
+            # Llama 有時會回傳空內容，加個保險
+            content = data['choices'][0]['message']['content']
+            if not content: return "Hmm... 我睇完圖，但唔知講咩好。試下再問多次？"
+            return content
         else:
             return f"⚠️ 連線失敗 (Code {response.status_code}): {response.text}"
             
@@ -272,7 +275,7 @@ with st.sidebar:
     p = st.session_state.user_profile
     
     # 顯示 Key 狀態
-    st.caption(f"System v7.0 (Llama/New Key) | Ready")
+    st.caption(f"System v7.0 (Llama) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
