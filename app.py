@@ -8,13 +8,12 @@ import json
 import re
 from PIL import Image
 
-# --- 1. 頁面設定 (必須放第一行) ---
+# --- 1. 頁面設定 ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
-# --- 2. CSS (樣式保留不動) ---
+# --- 2. CSS ---
 st.markdown("""
     <style>
-    /* 圖片樣式：長方形，高度固定 220px，填滿 */
     div[data-testid="stImage"] {
         background-color: transparent;
         border-radius: 10px;
@@ -28,8 +27,6 @@ st.markdown("""
         object-fit: cover !important;
         border-radius: 10px;
     }
-    
-    /* 側邊欄容器 */
     .stylist-container {
         background-color: #f0f2f6;
         border-radius: 15px;
@@ -38,29 +35,23 @@ st.markdown("""
         border: 1px solid #e0e0e0;
         margin-bottom: 20px;
     }
-    
-    /* 調整 Sidebar 頂部間距 */
     section[data-testid="stSidebar"] div.block-container {
         padding-top: 2rem;
     }
-    
-    /* 隱藏部分預設元件 */
     header {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 全局常數設定 ---
-# 確保這裡的分類跟你的圖片分類一致
+# --- 3. 常數與 Key ---
 CATEGORIES = ["上衣", "下身", "連身裙", "外套", "鞋", "配件"]
 SEASONS = ["四季", "春夏", "秋冬"]
 
-# --- 4. 設定 API Key ---
 try:
     OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 except:
-    OPENROUTER_API_KEY = "" # 請確保你有在 .streamlit/secrets.toml 設定 key
+    OPENROUTER_API_KEY = ""
 
-# --- 5. 初始化資料 ---
+# --- 4. 初始化 Session State ---
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
@@ -90,16 +81,7 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 試身室狀態 ---
-if 'fitting_room_top' not in st.session_state:
-    st.session_state.fitting_room_top = None 
-if 'fitting_room_bot' not in st.session_state:
-    st.session_state.fitting_room_bot = None 
-
-# 預設星星圖
-DEFAULT_STAR_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAABmJLR0QA/wD/AP+gvaeTAAAHLklEQVRogc2ae2xT5x3HP895x7Fz7DgXEqc4IYQ7QiglLRTa0g7a0g603WjXVarS0q5126R2U9qmTW23v6Zpm7Rp66Z2aNqudXTt1G60FChNoS1QCKPJgyYEh8S52I6d+D7n7Y/jiG1s44vj80i+P/zO8/t9f5/v8/19fudIGMJA2O8CDAnzC+S/iWkF0tPTEz1z5swRj8fzlM/ne9jn8z0ciUSm4vF4tFgs5rAsy6yqqjIEQTCrq6s/qa2tfbm+vv792trai/MLpKurK9rR0fG8z+d7c2xs7KBAIPDY2NjYlEAgEAJwuVxYLBaKi4spKioiIyODjIwMcnJyyMrKIiMjg9zcXAoLC1EUBUVR0DQNwzAwTRPDMDAMg4mJCcLhMKFQyIzFYslAIHAmEAi8e+HChb+vW7fu/XkF0t7e/qLf7/9zIBB4eHx8fOrw4cMAZGVlsWbNGlatWkVVVRXV1dWsWrWKkpISXC4XAAzDQNM0dF3HMAwMw0DXdTRNwzRNLMsCYHJykpGREYaGhhgaGmJoaIiBgQEGg8H4yMjIewMDA/9cs2bNqXkDomna04FA4M0jR4480t/fD0BFRQWrV6+mtraW2tpa1q5dS1FREYIgYFkWlmVhWRaCIGCaJqZpYpompmni8XgA8Hg8uFwuXC4Xbrcbv9+P3++no6ODzs5OhoaGEoFA4K329va/nVOgXR0dDzf19f35sGDB6cKCwtpbGykubmZdevWkZeXh2VZ2Lat/bH/e2xbf8Y0TVRVRVVVjh8/zqFDh4hGo4lAIHDq6NGjLzU0NHw4J0BdXd2Tvb29b5w9e/axkpISmpqa2LBhA1lZWQDYto1lWdi2bQOxbRvbtjFNE9M0MU0TwzAwDMM2dF3HMAx0XcfhcOBwOHREHA4HDocDv99PX18fPT09iYGBgbf37dv3ckNDw5/mBAiFQk/39fW9ceTIkcfq6upoampizZo1CILwJ4Qsy8K2bSzLwjRNLMvCtm0sy8I0TQzDQNM0DMNAlmVkWSYnJweHw0FxcTFNTU00NTVx7tw5uru7E8Fg8I0DBw683NDQ8Ke5AhKJRJ4eHBx888iRI4/V1tbS3NxMcXExgiBgWRaWZWGaJpZlYds2giAgCAKCIGBZFrZtY5omlmVhmia6riPLMrIsI8syTqeTvLw8mpqaaGpq4syZM3R3dyeCwWDrwYMHX2poaPjjXAEJBoNP9/f3v3H48OHHamtraWlpwe12Y9s2lmVhWRaCIGDbNoIgIAgCtm1j2zaWZWGaJoZhoOs6siwjy7KNyLKMy+WirKyM5uZmmpub6ezspKurKxEIBFofPnz4pYaGhj/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP"
-
-# --- 6. 核心功能函式 ---
+# --- 5. 核心函式 ---
 
 def get_real_weather(city):
     coords = {
@@ -134,7 +116,7 @@ def ask_openrouter_direct(text_prompt, image_list=None):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
-        "HTTP-Referer": "https://localhost:8501", # OpenRouter 需要
+        "HTTP-Referer": "https://localhost:8501",
         "X-Title": "My Stylist App",
         "Content-Type": "application/json"
     }
@@ -147,12 +129,10 @@ def ask_openrouter_direct(text_prompt, image_list=None):
                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
             })
     
-    # 增加更多備用模型，提高成功率
     models_to_try = [
         "google/gemini-2.0-flash-exp:free",
         "google/gemini-1.5-flash:free",
         "meta-llama/llama-3.2-11b-vision-instruct:free",
-        "huggingfaceh4/zephyr-7b-beta:free", # 備用
     ]
     
     for model in models_to_try:
@@ -162,17 +142,14 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             "temperature": 0.7
         }
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=25) # 延長timeout
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=25)
             if response.status_code == 200:
                 data = response.json()
                 if 'choices' in data and len(data['choices']) > 0:
                     content = data['choices'][0]['message']['content']
                     if content: return content
-            else:
-                print(f"Model {model} failed with status {response.status_code}") # 後台除錯用
-            time.sleep(1) # 失敗後稍等再試
-        except Exception as e:
-            print(f"Connection error with {model}: {e}")
+            time.sleep(1)
+        except:
             pass
             
     return "⚠️ 線路繁忙 (API Busy)，AI 暫時無法回應，請稍後再試。"
@@ -199,44 +176,42 @@ def process_upload(files, category, season):
     time.sleep(0.5)
     st.rerun()
 
-# --- 7. Dialogs (編輯 & 設定) ---
+# --- 6. Dialogs (編輯 & 設定) ---
 
 @st.dialog("✏️ 編輯單品")
-def edit_item_dialog(item, index):
-    st.caption(f"正在編輯 Item [ID: {index}]")
+def edit_item_dialog(item, real_id):
+    st.caption(f"正在編輯 Item [ID: {real_id}]")
     c1, c2 = st.columns([1, 1])
     with c1: st.image(item['image'])
     with c2:
-        # 修復：分類選擇邏輯，防止報錯
-        current_cat = item.get('category', '上衣')
-        if current_cat not in CATEGORIES:
-            current_cat = CATEGORIES[0]
+        # 修復 1: 使用 unique key，防止不同衣服的狀態混亂
+        uid = item['id']
         
-        # 這裡會自動選中原本的分類
-        new_cat = st.selectbox("分類", CATEGORIES, index=CATEGORIES.index(current_cat))
+        current_cat = item.get('category', '上衣')
+        if current_cat not in CATEGORIES: current_cat = CATEGORIES[0]
+        
+        # 這裡的 key=f"cat_{uid}" 是關鍵，保證每件衣服的輸入框是獨立的
+        new_cat = st.selectbox("分類", CATEGORIES, index=CATEGORIES.index(current_cat), key=f"cat_{uid}")
         item['category'] = new_cat
         
         current_season = item.get('season', '四季')
-        if current_season not in SEASONS:
-            current_season = SEASONS[0]
-        item['season'] = st.selectbox("季節", SEASONS, index=SEASONS.index(current_season))
+        if current_season not in SEASONS: current_season = SEASONS[0]
+        item['season'] = st.selectbox("季節", SEASONS, index=SEASONS.index(current_season), key=f"sea_{uid}")
         
         st.caption("詳細尺碼")
-        # 確保 size_data 存在
-        if 'size_data' not in item:
-            item['size_data'] = {'length': '', 'width': '', 'waist': ''}
+        if 'size_data' not in item: item['size_data'] = {}
 
         if any(x in item['category'] for x in ["上衣", "外套", "連身裙"]):
-            item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data'].get('length',''))
-            item['size_data']['width'] = st.text_input("胸寬 (cm)", value=item['size_data'].get('width',''))
+            item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data'].get('length',''), key=f"len_{uid}")
+            item['size_data']['width'] = st.text_input("胸寬 (cm)", value=item['size_data'].get('width',''), key=f"wid_{uid}")
         elif any(x in item['category'] for x in ["下身", "褲", "裙"]):
-            item['size_data']['length'] = st.text_input("褲/裙長 (cm)", value=item['size_data'].get('length',''))
-            item['size_data']['waist'] = st.text_input("腰圍 (吋/cm)", value=item['size_data'].get('waist',''))
+            item['size_data']['length'] = st.text_input("褲/裙長 (cm)", value=item['size_data'].get('length',''), key=f"len_{uid}")
+            item['size_data']['waist'] = st.text_input("腰圍 (吋/cm)", value=item['size_data'].get('waist',''), key=f"wai_{uid}")
         else:
-            item['size_data']['width'] = st.text_input("備註", value=item['size_data'].get('width',''))
+            item['size_data']['width'] = st.text_input("備註", value=item['size_data'].get('width',''), key=f"rem_{uid}")
         
         st.divider()
-        if st.button("🗑️ 刪除", type="primary"):
+        if st.button("🗑️ 刪除", type="primary", key=f"del_{uid}"):
             st.session_state.wardrobe.remove(item)
             st.rerun()
 
@@ -251,73 +226,25 @@ def settings_dialog():
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc)
     
     p['name'] = st.text_input("暱稱", value=p['name'])
-    
-    st.subheader("📏 身體密碼")
-    c1, c2, c3 = st.columns(3)
-    p['height'] = c1.number_input("身高(cm)", value=p['height'])
-    p['weight'] = c2.number_input("體重(kg)", value=p['weight'])
-    p['gender'] = c3.selectbox("性別", ["女", "男"], index=0)
-    
-    st.caption("三圍 (吋/cm)")
-    c4, c5, c6 = st.columns(3)
-    p['measurements']['bust'] = c4.number_input("胸", value=p['measurements']['bust'])
-    p['measurements']['waist'] = c5.number_input("腰", value=p['measurements']['waist'])
-    p['measurements']['hips'] = c6.number_input("臀", value=p['measurements']['hips'])
-
     st.divider()
-
-    st.subheader("✨ Stylist 設定")
     s = st.session_state.stylist_profile
     s['name'] = st.text_input("Stylist 名字", value=s['name'])
-    
-    f = st.file_uploader("更換頭像 (長方形效果最佳)", type=['png','jpg'])
-    if f: s['avatar_image'] = f.getvalue()
-    
-    presets = {
-        "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
-        "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
-        "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。"
-    }
-    
-    current_preset = None
-    for k, v in presets.items():
-        if v == s['persona']:
-            current_preset = k
-            break
-            
-    sel_p = st.selectbox("人設風格", list(presets.keys()), index=list(presets.keys()).index(current_preset) if current_preset else 0)
-    
-    if sel_p != s.get('last_preset'):
-        s['persona'] = presets[sel_p]
-        s['last_preset'] = sel_p
-
-    s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
-    
     if st.button("完成", type="primary"): st.rerun()
 
 @st.dialog("💬 與 Stylist 對話", width="large")
 def chat_dialog():
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
-    
     c1, c2 = st.columns([1, 4])
     with c1:
-        if s['avatar_image']:
-            st.markdown("""<style>div[data-testid="stImage"] img { height: 60px !important; }</style>""", unsafe_allow_html=True)
-            st.image(s['avatar_image'])
-        else:
-            st.markdown("""<style>div[data-testid="stImage"] img { height: 60px !important; }</style>""", unsafe_allow_html=True)
-            st.image(DEFAULT_STAR_ICON)
-            
+        if s['avatar_image']: st.image(s['avatar_image'])
+        else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=60)
     with c2:
         st.subheader(s['name'])
         st.caption(f"📍 {p['location']} | {s['weather_cache']}")
-
     st.divider()
-
     for msg in st.session_state.chat_history:
-        role = msg["role"]
-        with st.chat_message(role):
+        with st.chat_message(msg["role"]):
             st.write(msg["content"])
             if "related_ids" in msg and msg["related_ids"]:
                 cols = st.columns(len(msg["related_ids"]))
@@ -329,20 +256,13 @@ def chat_dialog():
 
     if user_in := st.chat_input("想問咩？"):
         st.session_state.chat_history.append({"role": "user", "content": user_in})
-        with st.chat_message("user"):
-            st.write(user_in)
+        with st.chat_message("user"): st.write(user_in)
         
         with st.chat_message("assistant"):
             with st.spinner("Stylist 正在思考..."):
                 m = p['measurements']
-                body_info = f"{p['height']}cm/{p['weight']}kg, 三圍:{m['bust']}-{m['waist']}-{m['hips']}"
-                sys_msg = (
-                    f"你是{s['name']}。{s['persona']}\n"
-                    f"用戶：{p['name']} ({body_info}), {p['location']} ({s['weather_cache']})。\n"
-                    f"用戶問：{user_in}\n"
-                    f"**重要規則：建議單品時，必須明確標註 [ID: 數字]。**\n"
-                    f"衣櫃清單："
-                )
+                body_info = f"{p['height']}cm/{p['weight']}kg"
+                sys_msg = (f"你是{s['name']}。{s['persona']}\n用戶：{p['name']} ({body_info}), {p['location']} ({s['weather_cache']})。\n用戶問：{user_in}\n**規則：建議單品時，必須明確標註 [ID: 數字]。**\n衣櫃清單：")
                 img_list = []
                 for i, item in enumerate(st.session_state.wardrobe):
                     img_list.append(item['image'])
@@ -350,8 +270,8 @@ def chat_dialog():
 
                 reply = ask_openrouter_direct(sys_msg, img_list)
                 found_ids = extract_ids_from_text(reply)
-                
                 st.write(reply)
+                
                 valid_ids = []
                 if found_ids:
                     st.caption("✨ 建議搭配：")
@@ -362,14 +282,9 @@ def chat_dialog():
                             with cols[idx]:
                                 item = st.session_state.wardrobe[item_id]
                                 st.image(item['image'], caption=f"ID: {item_id}")
-                    
-                st.session_state.chat_history.append({
-                    "role": "assistant", 
-                    "content": reply,
-                    "related_ids": valid_ids
-                })
+                st.session_state.chat_history.append({"role": "assistant", "content": reply, "related_ids": valid_ids})
 
-# --- 8. 主程式 ---
+# --- 7. 主程式 ---
 
 if st.session_state.stylist_profile['weather_cache'] == "查詢中...":
     loc = st.session_state.user_profile['location']
@@ -378,13 +293,9 @@ if st.session_state.stylist_profile['weather_cache'] == "查詢中...":
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
-    
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
-    
-    if s['avatar_image']:
-        st.image(s['avatar_image'], use_column_width=True)
-    else:
-        st.image(DEFAULT_STAR_ICON, use_column_width=True)
+    if s['avatar_image']: st.image(s['avatar_image'], use_column_width=True)
+    else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=100)
     
     c_name, c_gear = st.columns([4, 1])
     with c_name: st.markdown(f"### {s['name']}")
@@ -393,92 +304,57 @@ with st.sidebar:
             
     st.caption(f"{p['location']} | {s['weather_cache']}")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    if st.button("💬 開始對話", type="primary", use_container_width=True):
-        chat_dialog()
+    if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
 
-    # --- 試身室 (修復版) ---
+    # --- 試身室 (修復版 2.0) ---
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
         if not st.session_state.wardrobe:
             st.caption("衣櫃是空的")
         else:
             tops = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["上衣","外套","連身裙"]]
             bots = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["下身","褲","裙"]]
-            
-            # 確保不會因為空list報錯
             if not tops: tops = []
             if not bots: bots = []
             
-            # 建立ID對應表供 selectbox 顯示
-            top_options = tops + [x for x in range(len(st.session_state.wardrobe)) if x not in tops and x not in bots] # 防漏
+            top_options = tops + [x for x in range(len(st.session_state.wardrobe)) if x not in tops and x not in bots]
             bot_options = bots + [x for x in range(len(st.session_state.wardrobe)) if x not in tops and x not in bots]
-
-            # 讀取當前狀態
-            current_t = st.session_state.fitting_room_top
-            current_b = st.session_state.fitting_room_bot
-            
-            t_idx = 0
-            if current_t in top_options: t_idx = top_options.index(current_t)
-            
-            b_idx = 0
-            if current_b in bot_options: b_idx = bot_options.index(current_b)
 
             c1, c2 = st.columns(2)
             
-            # 上身選擇
-            if top_options:
-                t = c1.selectbox("上", top_options, index=t_idx, format_func=lambda x: f"ID:{x}", key="sb_top")
-                if t is not None: st.image(st.session_state.wardrobe[t]['image'])
-            else:
-                c1.caption("無上衣")
-
-            # 下身選擇
-            if bot_options:
-                b = c2.selectbox("下", bot_options, index=b_idx, format_func=lambda x: f"ID:{x}", key="sb_bot")
-                if b is not None: st.image(st.session_state.wardrobe[b]['image'])
-            else:
-                c2.caption("無下身")
+            # 使用 session_state key 來控制選單
+            t = c1.selectbox("上", top_options, format_func=lambda x: f"ID:{x}", key="sb_top")
+            if t is not None: st.image(st.session_state.wardrobe[t]['image'])
+            
+            b = c2.selectbox("下", bot_options, format_func=lambda x: f"ID:{x}", key="sb_bot")
+            if b is not None: st.image(st.session_state.wardrobe[b]['image'])
 
     st.divider()
     st.subheader("📥 加入衣櫃")
-    
     c1, c2 = st.columns(2)
-    # 修復：這裡使用統一的 CATEGORIES
     cat = c1.selectbox("分類", CATEGORIES) 
     sea = c2.selectbox("季節", SEASONS)
-    
     files = st.file_uploader("圖片", accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
     if files: process_upload(files, cat, sea)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🗑️ 清空"):
         st.session_state.wardrobe = []
         st.rerun()
 
 # 主畫面
 st.subheader("🧥 我的衣櫃")
-
-# 季節切換
 season_filter = st.radio("季節篩選", ["全部", "春夏", "秋冬"], index=0, horizontal=True, label_visibility="collapsed")
 
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
 else:
-    # 1. 先篩選季節
     filtered_items = []
     for item in st.session_state.wardrobe:
         iseason = item.get('season', '四季')
-        if season_filter == "全部":
-            filtered_items.append(item)
-        elif season_filter == "春夏" and iseason in ["四季", "春夏"]:
-            filtered_items.append(item)
-        elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]:
-            filtered_items.append(item)
+        if season_filter == "全部": filtered_items.append(item)
+        elif season_filter == "春夏" and iseason in ["四季", "春夏"]: filtered_items.append(item)
+        elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]: filtered_items.append(item)
 
-    # 2. 再篩選分類
     cats_available = list(set([x['category'] for x in filtered_items]))
     sel = st.multiselect("🔍", cats_available, placeholder="篩選分類")
-    
     final_display = [x for x in filtered_items if x['category'] in sel] if sel else filtered_items
     
     cols = st.columns(5)
@@ -487,24 +363,20 @@ else:
             real_id = st.session_state.wardrobe.index(item)
             st.image(item['image'], caption=f"ID: {real_id}")
             
-            # --- 按鈕區 ---
             c_edit, c_try = st.columns([1, 1])
-            
             with c_edit:
                 if st.button("✏️", key=f"e_{item['id']}"):
                      edit_item_dialog(item, real_id)
             
             with c_try:
-                # --- 試身按鈕修復版 ---
+                # --- 試身按鈕 2.0: 強制更新 State ---
                 if st.button("👕", key=f"t_{item['id']}"):
-                    # 1. 判斷放入上身還是下身
                     if item['category'] in ["上衣", "外套", "連身裙"]:
-                        st.session_state.fitting_room_top = real_id
+                        # 直接把左邊選單的 key 值改成這個 ID
+                        st.session_state['sb_top'] = real_id
                     else:
-                        st.session_state.fitting_room_bot = real_id
+                        st.session_state['sb_bot'] = real_id
                     
-                    # 2. 顯示成功訊息
-                    st.toast(f"已加入試身: {item['category']}", icon="✅")
-                    
-                    # 3. 強制刷新 (關鍵)
+                    st.toast(f"已穿上 ID:{real_id}", icon="✅")
+                    # 強制刷新頁面，讓左邊選單吃到新的 session_state 值
                     st.rerun()
