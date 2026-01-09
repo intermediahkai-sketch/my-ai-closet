@@ -9,15 +9,10 @@ import re
 import random
 from PIL import Image
 
-# --- 1. 頁面設定 (強制展開側邊欄) ---
-st.set_page_config(
-    page_title="My Stylist", 
-    page_icon="👗", 
-    layout="wide", 
-    initial_sidebar_state="expanded" # <--- 關鍵修改：嘗試強制展開
-)
+# --- 1. 頁面設定 ---
+st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
-# --- 2. CSS ---
+# --- 2. CSS (針對單欄佈局優化) ---
 st.markdown("""
     <style>
     div[data-testid="stImage"] {
@@ -29,14 +24,11 @@ st.markdown("""
         align-items: center;
     }
     div[data-testid="stImage"] img {
-        height: 220px !important; 
+        height: 200px !important; /* 手機版圖片稍微調小一點點以免太長 */
         object-fit: cover !important;
         border-radius: 10px;
     }
     
-    section[data-testid="stSidebar"] div.block-container {
-        padding-top: 2rem;
-    }
     /* 讓 Pills 排列更整齊 */
     div[data-testid="stPills"] {
         gap: 8px;
@@ -45,7 +37,7 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
-    /* 試身室樣式 - 背景透明，移除白框與陰影 */
+    /* 試身室樣式 - 透明無框 */
     .fitting-room-box {
         background-color: transparent; 
         border: none;
@@ -54,9 +46,19 @@ st.markdown("""
         text-align: center;
     }
     
-    /* 調整按鈕樣式，讓設定齒輪緊湊一點 */
+    /* 頂部控制區樣式 - 讓它看起來像 App Header */
+    .top-header {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+    }
+    
+    /* 調整設定按鈕 */
     button[key="setting_btn"] {
         padding: 0px 10px;
+        border: none;
+        background: transparent;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -293,7 +295,6 @@ def settings_dialog():
     p = st.session_state.user_profile
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
-    # Update weather if location changes
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc, p['name'])
@@ -337,7 +338,6 @@ def settings_dialog():
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
-        # 這裡不加 st.rerun()，以防 Dialog 閃退，Streamlit 會自動更新 UI
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -393,87 +393,92 @@ def chat_dialog():
                                 st.image(item['image'], caption=f"ID: {item_id}")
                 st.session_state.chat_history.append({"role": "assistant", "content": reply, "related_ids": valid_ids})
 
-# --- 7. 主程式 ---
+# --- 7. 主程式 (Single Column Layout for Mobile) ---
 
-# 確保天氣有 User 名字的客製化
 if st.session_state.stylist_profile['weather_cache'] == "查詢中..." or "Hi User" in st.session_state.stylist_profile['weather_cache']:
     loc = st.session_state.user_profile['location']
     name = st.session_state.user_profile['name']
     st.session_state.stylist_profile['weather_cache'] = get_real_weather(loc, name)
 
-# --- 側邊欄 (還原為你習慣的 Sidebar 佈局) ---
-with st.sidebar:
+# --- 頂部控制面板 (Top Header) - 取代 Sidebar ---
+with st.container():
+    st.markdown('<div class="top-header">', unsafe_allow_html=True)
+    
+    # Stylist 資訊 + 齒輪
     s = st.session_state.stylist_profile
-    p = st.session_state.user_profile
+    c_head1, c_head2 = st.columns([1, 4], vertical_alignment="center")
     
-    # 頭像
-    if s['avatar_image']: st.image(s['avatar_image'], use_column_width=True)
-    else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", width=100)
+    with c_head1:
+        if s['avatar_image']: st.image(s['avatar_image'], use_column_width=True)
+        else: st.image("https://cdn-icons-png.flaticon.com/512/6833/6833605.png", use_column_width=True)
+        
+    with c_head2:
+        c_text, c_btn = st.columns([5, 1])
+        with c_text:
+            role = s.get('last_preset', '專屬顧問')
+            st.markdown(f"#### 你的{role} {s['name']}")
+            st.caption(s['weather_cache'])
+        with c_btn:
+            if st.button("⚙️", key="setting_btn"): settings_dialog()
+
+    st.markdown("---") # 分隔線
+
+    # 功能按鈕
+    c_b1, c_b2 = st.columns(2)
     
-    # 標題 + 齒輪
-    c_title, c_gear = st.columns([5, 1])
-    with c_title:
-        role = s.get('last_preset', '專屬顧問')
-        st.markdown(f"### 你的{role} {s['name']}") 
-    with c_gear:
-        if st.button("⚙️", key="setting_btn"): 
-            settings_dialog()
-            
-    st.caption(s['weather_cache']) 
-    
-    # 開始對話按鈕
-    if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
-    
-    # --- 修正重點：使用 callback 解決按鈕文字不同步問題 ---
+    # Callback 定義
     def toggle_fitting_room():
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
 
-    room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
-    # 綁定 callback，確保即時反應
-    st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
+    with c_b1:
+        if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # 試身室面板 (已移除白框背景，透明)
+    with c_b2:
+        room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
+        st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
+
+    # 試身室面板 (Top Display)
     if st.session_state.show_fitting_room:
         st.markdown('<div class="fitting-room-box">', unsafe_allow_html=True)
         st.caption("目前搭配")
         
-        # 上衣區
+        # 垂直排列
         if st.session_state.wearing_top is not None and st.session_state.wearing_top < len(st.session_state.wardrobe):
-            st.image(st.session_state.wardrobe[st.session_state.wearing_top]['image'])
+            st.image(st.session_state.wardrobe[st.session_state.wearing_top]['image'], width=200)
         else:
             st.markdown("Waiting<br>Top", unsafe_allow_html=True)
 
-        # 褲子區
         if st.session_state.wearing_bottom is not None and st.session_state.wearing_bottom < len(st.session_state.wardrobe):
-            st.image(st.session_state.wardrobe[st.session_state.wearing_bottom]['image'])
+            st.image(st.session_state.wardrobe[st.session_state.wearing_bottom]['image'], width=200)
         else:
             st.markdown("Waiting<br>Bottom", unsafe_allow_html=True)
                 
         st.markdown('</div>', unsafe_allow_html=True)
-
-    st.divider()
-    st.subheader("📥 加入衣櫃")
     
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 摺疊選單：加入衣櫃 ---
+with st.expander("📥 加入新衣物 (點擊展開)"):
     cat = st.pills("分類", CATEGORIES, default=CATEGORIES[0], selection_mode="single")
     sea = st.pills("季節", SEASONS, default=SEASONS[0], selection_mode="single")
     
     files = st.file_uploader("圖片", accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
     if files: process_upload(files, cat or CATEGORIES[0], sea or SEASONS[0])
     
-    if st.button("🗑️ 清空"):
+    if st.button("🗑️ 清空衣櫃"):
         st.session_state.wardrobe = []
         st.session_state.wearing_top = None
         st.session_state.wearing_bottom = None
         st.rerun()
 
-# 主畫面
+# --- 主畫面：衣櫃列表 ---
 st.subheader("🧥 我的衣櫃")
 
 season_filter = st.pills("季節篩選", ["全部", "春夏", "秋冬"], default="全部", selection_mode="single")
 if not season_filter: season_filter = "全部"
 
 if not st.session_state.wardrobe:
-    st.info("👈 左側加入衣物，然後點「開始對話」！")
+    st.info("👈 點擊上方「加入新衣物」開始！")
 else:
     filtered_items = []
     for item in st.session_state.wardrobe:
@@ -495,6 +500,7 @@ else:
     else:
         final_display = [x for x in filtered_items if x['category'] in sel]
     
+    # 網格顯示
     cols = st.columns(5)
     for i, item in enumerate(final_display):
         with cols[i % 5]:
