@@ -5,11 +5,14 @@ import uuid
 import time
 import random
 
-# --- 1. 設定 API Key ---
-if "GOOGLE_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-else:
-    st.error("❌ 找不到 API Key，請檢查 Secrets 設定")
+# --- 1. 設定 API Key (暴力測試版) ---
+# 👇 請將你剛剛複製的 AIza... 密碼直接貼在下面的引號內
+MY_DIRECT_KEY = "AIzaSyAznNyRqvkq7DRfkq1a3RyoZXgKOmIF0oo" 
+
+try:
+    genai.configure(api_key=MY_DIRECT_KEY)
+except Exception as e:
+    st.error(f"API Key 錯誤: {e}")
     st.stop()
 
 # --- 2. 初始化資料 ---
