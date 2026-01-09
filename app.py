@@ -91,7 +91,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (Requests 直連 Gemini via OpenRouter) ---
+# --- 4. 核心功能 (自動重試版) ---
 
 def encode_image(image):
     buffered = io.BytesIO()
@@ -102,7 +102,6 @@ def encode_image(image):
 
 def ask_openrouter_direct(text_prompt, image_list=None):
     url = "https://openrouter.ai/api/v1/chat/completions"
-    
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
         "HTTP-Referer": "https://myapp.com",
@@ -121,29 +120,37 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             })
             
     payload = {
-        # ✅ 改用 Gemini 2.0 Flash (目前最穩定的免費版)
         "model": "google/gemini-2.0-flash-exp:free",
-        "messages": [
-            {"role": "user", "content": content_parts}
-        ]
+        "messages": [{"role": "user", "content": content_parts}]
     }
 
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        
-        if response.status_code == 200:
-            data = response.json()
-            if 'choices' in data and len(data['choices']) > 0:
-                content = data['choices'][0]['message']['content']
-                if not content: return "Hmm... 好像有點問題，請再試一次。"
-                return content
-            else:
-                 return f"⚠️ API 回傳格式異常: {data}"
-        else:
-            return f"⚠️ 連線失敗 (Code {response.status_code}): {response.text}"
+    # 🔥 自動重試機制 (最多試 3 次)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(payload))
             
-    except Exception as e:
-        return f"⚠️ 網絡錯誤: {str(e)}"
+            # 如果成功 (200 OK)
+            if response.status_code == 200:
+                data = response.json()
+                if 'choices' in data and len(data['choices']) > 0:
+                    return data['choices'][0]['message']['content']
+            
+            # 如果是 429 (太繁忙)，就等一下再試
+            elif response.status_code == 429:
+                if attempt < max_retries - 1:
+                    time.sleep(2) # 等 2 秒
+                    continue # 重試
+                else:
+                    return "⚠️ 線路太繁忙，試了幾次都擠不進去。請過幾秒再按一次！"
+            
+            else:
+                return f"⚠️ 連線錯誤 (Code {response.status_code}): {response.text}"
+                
+        except Exception as e:
+            return f"⚠️ 網絡錯誤: {str(e)}"
+            
+    return "⚠️ 未知錯誤"
 
 # --- 處理上傳 ---
 def process_upload(files, category, season):
@@ -257,7 +264,7 @@ def chat_dialog():
             st.write(user_in)
         
         with st.chat_message("assistant"):
-            with st.spinner("思考中..."):
+            with st.spinner("思考中... (線路繁忙時會自動重試)"):
                 sys_msg = (
                     f"你是{s['name']}。{s['persona']}\n"
                     f"用戶：{p['name']}, {p['location']} ({s['current_weather']})。\n"
@@ -279,7 +286,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v9.0 (Gemini via OR) | Key Loaded")
+    st.caption(f"System v10.0 (Auto-Retry) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
