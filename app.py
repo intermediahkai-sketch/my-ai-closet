@@ -32,6 +32,7 @@ st.markdown("""
     section[data-testid="stSidebar"] div.block-container {
         padding-top: 2rem;
     }
+    /* 讓 Pills 排列更整齊 */
     div[data-testid="stPills"] {
         gap: 8px;
         flex-wrap: wrap;
@@ -39,6 +40,7 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
+    /* 試身室樣式 - 背景透明，移除白框與陰影 */
     .fitting-room-box {
         background-color: transparent; 
         border: none;
@@ -47,6 +49,7 @@ st.markdown("""
         text-align: center;
     }
     
+    /* 調整按鈕樣式，讓設定齒輪緊湊一點 */
     button[key="setting_btn"] {
         padding: 0px 10px;
     }
@@ -66,6 +69,7 @@ except:
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
+# --- 試身室狀態管理 ---
 if 'show_fitting_room' not in st.session_state:
     st.session_state.show_fitting_room = False 
 if 'wearing_top' not in st.session_state:
@@ -137,55 +141,12 @@ def get_real_weather(city, user_name="User"):
     except:
         return f"Hi {user_name}, {city} 暫時無法連線。"
 
-# --- 優化圖片處理 ---
 def encode_image(image):
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((300, 300)) # 稍微大一點點保證清晰
-    image.save(buffered, format="JPEG", quality=70)
+    image.thumbnail((512, 512))
+    image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-# --- Save/Load 核心邏輯 (修復顯示問題) ---
-def convert_wardrobe_to_json():
-    export_data = []
-    with st.spinner("正在打包衣櫃..."):
-        for item in st.session_state.wardrobe:
-            item_copy = item.copy()
-            item_copy['image'] = encode_image(item['image'])
-            export_data.append(item_copy)
-    return json.dumps(export_data)
-
-def load_wardrobe_from_json(json_file):
-    try:
-        # 讀取檔案內容
-        content = json_file.read()
-        data = json.loads(content)
-        new_wardrobe = []
-        
-        progress_bar = st.progress(0, text="正在搬運衣服...")
-        total = len(data)
-        
-        for idx, item in enumerate(data):
-            # 解碼
-            img_data = base64.b64decode(item['image'])
-            # 建立 BytesIO
-            img_buffer = io.BytesIO(img_data)
-            # 打開圖片
-            img = Image.open(img_buffer)
-            # --- 關鍵修復：強制載入數據到記憶體，避免 Buffer 關閉後圖片消失 ---
-            img.load() 
-            # 轉為 RGB 確保兼容性
-            item['image'] = img.convert("RGB")
-            
-            new_wardrobe.append(item)
-            progress_bar.progress((idx + 1) / total, text=f"還原中... {idx+1}/{total}")
-            
-        time.sleep(0.5)
-        progress_bar.empty()
-        return new_wardrobe
-    except Exception as e:
-        st.error(f"讀取失敗: {e}")
-        return []
 
 def ask_openrouter_direct(text_prompt, image_list=None):
     if not OPENROUTER_API_KEY:
@@ -326,6 +287,7 @@ def settings_dialog():
     p = st.session_state.user_profile
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
+    # Update weather if location changes
     if new_loc != p['location']:
         p['location'] = new_loc
         st.session_state.stylist_profile['weather_cache'] = get_real_weather(new_loc, p['name'])
@@ -369,6 +331,7 @@ def settings_dialog():
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
+        # 這裡不加 st.rerun()，以防 Dialog 閃退，Streamlit 會自動更新 UI
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -426,6 +389,7 @@ def chat_dialog():
 
 # --- 7. 主程式 ---
 
+# 確保天氣有 User 名字的客製化
 if st.session_state.stylist_profile['weather_cache'] == "查詢中..." or "Hi User" in st.session_state.stylist_profile['weather_cache']:
     loc = st.session_state.user_profile['location']
     name = st.session_state.user_profile['name']
@@ -451,24 +415,33 @@ with st.sidebar:
             
     st.caption(s['weather_cache']) 
     
+    # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
+    # --- 修正重點：使用 callback 解決按鈕文字不同步問題 ---
+    
+    # 定義切換狀態的 callback
     def toggle_fitting_room():
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
 
+    # 根據當前狀態決定按鈕文字
     room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
     
+    # 綁定 callback
     st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
     
+    # 試身室面板 (已移除白框背景)
     if st.session_state.show_fitting_room:
         st.markdown('<div class="fitting-room-box">', unsafe_allow_html=True)
         st.caption("目前搭配")
         
+        # 上衣區
         if st.session_state.wearing_top is not None and st.session_state.wearing_top < len(st.session_state.wardrobe):
             st.image(st.session_state.wardrobe[st.session_state.wearing_top]['image'])
         else:
             st.markdown("Waiting<br>Top", unsafe_allow_html=True)
 
+        # 褲子區
         if st.session_state.wearing_bottom is not None and st.session_state.wearing_bottom < len(st.session_state.wardrobe):
             st.image(st.session_state.wardrobe[st.session_state.wearing_bottom]['image'])
         else:
@@ -490,33 +463,6 @@ with st.sidebar:
         st.session_state.wearing_top = None
         st.session_state.wearing_bottom = None
         st.rerun()
-
-    # --- Save/Load 區塊 ---
-    st.divider()
-    with st.expander("📂 備份與還原"):
-        st.caption("將衣櫃存成檔案，下次再來讀取")
-        
-        if st.session_state.wardrobe:
-            # 會觸發 spinner 讓用戶知道正在壓縮
-            json_str = convert_wardrobe_to_json()
-            st.download_button(
-                label="💾 下載衣櫃備份 (.json)",
-                data=json_str,
-                file_name="my_wardrobe_backup.json",
-                mime="application/json",
-            )
-        else:
-            st.button("💾 下載衣櫃備份 (.json)", disabled=True)
-
-        uploaded_backup = st.file_uploader("還原備份", type=["json"], key="backup_loader")
-        if uploaded_backup:
-            # 讀取邏輯更新，會顯示進度條
-            loaded_data = load_wardrobe_from_json(uploaded_backup)
-            if loaded_data:
-                st.session_state.wardrobe = loaded_data
-                st.success(f"成功還原 {len(loaded_data)} 件衣物！")
-                time.sleep(1)
-                st.rerun()
 
 # 主畫面
 st.subheader("🧥 我的衣櫃")
