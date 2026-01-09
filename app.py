@@ -12,7 +12,7 @@ from datetime import datetime
 # --- 1. 頁面設定 (必須放第一行) ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
-# --- 2. CSS (嚴格執行 V11 Perfect Layout) ---
+# --- 2. CSS (V11 Perfect Layout + 長方形頭像) ---
 st.markdown("""
     <style>
     /* 圖片樣式：長方形，高度固定 220px，填滿 */
@@ -50,14 +50,19 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 設定 API Key ---
+# --- 3. 全局常數設定 (統一分類清單) ---
+# 🔥 關鍵修正：確保這裡的清單與編輯時的清單完全一致
+CATEGORIES = ["上衣", "下身", "連身裙", "外套", "鞋", "配件"]
+SEASONS = ["四季", "春夏", "秋冬"]
+
+# --- 4. 設定 API Key ---
 try:
     OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 except:
     st.error("⚠️ 找不到 API Key！請去 Streamlit 網頁版 -> Settings -> Secrets 貼上 Key。")
     st.stop()
 
-# --- 4. 初始化資料 ---
+# --- 5. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
@@ -75,9 +80,9 @@ if 'user_profile' not in st.session_state:
 if 'stylist_profile' not in st.session_state:
     st.session_state.stylist_profile = {
         "name": "你的專屬 Stylist",
-        "avatar_image": None, # None = 使用預設星星
+        "avatar_image": None, 
         "persona": "一位貼心的專業形象顧問，語氣親切、專業。",
-        "last_preset": None, # 用來偵測人設變更
+        "last_preset": None,
         "weather_cache": "查詢中..."
     }
 
@@ -87,13 +92,12 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# 預設星星圖 (Base64)
+# 預設星星圖
 DEFAULT_STAR_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAABmJLR0QA/wD/AP+gvaeTAAAHLklEQVRogc2ae2xT5x3HP895x7Fz7DgXEqc4IYQ7QiglLRTa0g7a0g603WjXVarS0q5126R2U9qmTW23v6Zpm7Rp66Z2aNqudXTt1G60FChNoS1QCKPJgyYEh8S52I6d+D7n7Y/jiG1s44vj80i+P/zO8/t9f5/v8/19fudIGMJA2O8CDAnzC+S/iWkF0tPTEz1z5swRj8fzlM/ne9jn8z0ciUSm4vF4tFgs5rAsy6yqqjIEQTCrq6s/qa2tfbm+vv792trai/MLpKurK9rR0fG8z+d7c2xs7KBAIPDY2NjYlEAgEAJwuVxYLBaKi4spKioiIyODjIwMcnJyyMrKIiMjg9zcXAoLC1EUBUVR0DQNwzAwTRPDMDAMg4mJCcLhMKFQyIzFYslAIHAmEAi8e+HChb+vW7fu/XkF0t7e/qLf7/9zIBB4eHx8fOrw4cMAZGVlsWbNGlatWkVVVRXV1dWsWrWKkpISXC4XAAzDQNM0dF3HMAwMw0DXdTRNwzRNLMsCYHJykpGREYaGhhgaGmJoaIiBgQEGg8H4yMjIewMDA/9cs2bNqXkDomna04FA4M0jR4480t/fD0BFRQWrV6+mtraW2tpa1q5dS1FREYIgYFkWlmVhWRaCIGCaJqZpYpompmni8XgA8Hg8uFwuXC4Xbrcbv9+P3++no6ODzs5OhoaGEoFA4K329va/nVOgXR0dDzf19f35sGDB6cKCwtpbGykubmZdevWkZeXh2VZ2Lat/bH/e2xbf8Y0TVRVRVVVjh8/zqFDh4hGo4lAIHDq6NGjLzU0NHw4J0BdXd2Tvb29b5w9e/axkpISmpqa2LBhA1lZWQDYto1lWdi2bQOxbRvbtjFNE9M0MU0TwzAwDMM2dF3HMAx0XcfhcOBwOHREHA4HDocDv99PX18fPT09iYGBgbf37dv3ckNDw5/mBAiFQk/39fW9ceTIkcfq6upoampizZo1CILwJ4Qsy8K2bSzLwjRNLMvCtm0sy8I0TQzDQNM0DMNAlmVkWSYnJweHw0FxcTFNTU00NTVx7tw5uru7E8Fg8I0DBw683NDQ8Ke5AhKJRJ4eHBx888iRI4/V1tbS3NxMcXExgiBgWRaWZWGaJpZlYds2giAgCAKCIGBZFrZtY5omlmVhmia6riPLMrIsI8syTqeTvLw8mpqaaGpq4syZM3R3dyeCwWDrwYMHX2poaPjjXAEJBoNP9/f3v3H48OHHamtraWlpwe12Y9s2lmVhWRaCIGDbNoIgIAgCtm1j2zaWZWGaJoZhoOs6siwjy7KNyLKMy+WirKyM5uZmmpub6ezspKurKxEIBFofPnz4pYaGhj/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP"
 
-# --- 5. 核心功能函式 ---
+# --- 6. 核心功能函式 ---
 
 def get_real_weather(city):
-    """使用 Open-Meteo API 獲取天氣"""
     coords = {
         "香港": {"lat": 22.3193, "lon": 114.1694},
         "台北": {"lat": 25.0330, "lon": 121.5654},
@@ -178,7 +182,7 @@ def process_upload(files, category, season):
     time.sleep(0.5)
     st.rerun()
 
-# --- 6. Dialogs (定義對話框) ---
+# --- 7. Dialogs (編輯 & 設定) ---
 
 @st.dialog("✏️ 編輯單品")
 def edit_item_dialog(item, index):
@@ -186,12 +190,18 @@ def edit_item_dialog(item, index):
     c1, c2 = st.columns([1, 1])
     with c1: st.image(item['image'])
     with c2:
-        cats = ["上衣", "下身褲裝", "下身裙裝", "連身裙", "外套", "鞋履", "配件"]
-        try: idx = cats.index(item['category'])
-        except: idx = 0
-        item['category'] = st.selectbox("分類", cats, index=idx)
+        # 🔥 修正：使用全局 CATEGORIES，確保選項一致
+        try: idx = CATEGORIES.index(item['category'])
+        except: idx = 0 # 如果找不到 (例如舊數據)，預設選第一個
+        
+        item['category'] = st.selectbox("分類", CATEGORIES, index=idx)
+        
+        try: s_idx = SEASONS.index(item.get('season', '四季'))
+        except: s_idx = 0
+        item['season'] = st.selectbox("季節", SEASONS, index=s_idx)
         
         st.caption("詳細尺碼")
+        # 根據分類顯示不同輸入框
         if any(x in item['category'] for x in ["上衣", "外套", "連身裙"]):
             item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data']['length'])
             item['size_data']['width'] = st.text_input("胸寬 (cm)", value=item['size_data']['width'])
@@ -208,11 +218,9 @@ def edit_item_dialog(item, index):
 
 @st.dialog("⚙️ 設定")
 def settings_dialog():
-    # 1. 用戶資料
     st.subheader("👤 用戶資料")
     p = st.session_state.user_profile
     
-    # 地點與天氣
     new_loc = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     if new_loc != p['location']:
         p['location'] = new_loc
@@ -220,7 +228,6 @@ def settings_dialog():
     
     p['name'] = st.text_input("暱稱", value=p['name'])
     
-    # 身體密碼
     st.subheader("📏 身體密碼")
     c1, c2, c3 = st.columns(3)
     p['height'] = c1.number_input("身高(cm)", value=p['height'])
@@ -235,7 +242,6 @@ def settings_dialog():
 
     st.divider()
 
-    # 2. Stylist 設定
     st.subheader("✨ Stylist 設定")
     s = st.session_state.stylist_profile
     s['name'] = st.text_input("Stylist 名字", value=s['name'])
@@ -243,15 +249,14 @@ def settings_dialog():
     f = st.file_uploader("更換頭像 (長方形效果最佳)", type=['png','jpg'])
     if f: s['avatar_image'] = f.getvalue()
     
-    # 人設選擇 (即時生效，無須按鈕)
+    # 人設選擇 (即時生效)
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
-        "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。",
-        "霸道總裁": "強勢但寵溺的總裁，不准穿太露。"
+        "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。"
     }
     
-    # 預設選中當前人設
+    # 查找當前人設的 Key
     current_preset = None
     for k, v in presets.items():
         if v == s['persona']:
@@ -260,11 +265,9 @@ def settings_dialog():
             
     sel_p = st.selectbox("人設風格", list(presets.keys()), index=list(presets.keys()).index(current_preset) if current_preset else 0)
     
-    # 如果選擇改變，更新指令
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
-        # 這裡不需要 rerun，直接更新下方 text_area 的 value 即可 (Streamlit 會自動重繪)
 
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -300,7 +303,6 @@ def chat_dialog():
                     if 0 <= item_id < len(st.session_state.wardrobe):
                         with cols[idx]:
                             item = st.session_state.wardrobe[item_id]
-                            # 恢復默認圖片高度 (受 global css 控制，會是長方形)
                             st.image(item['image'], caption=f"ID: {item_id}")
 
     if user_in := st.chat_input("想問咩？"):
@@ -345,9 +347,8 @@ def chat_dialog():
                     "related_ids": valid_ids
                 })
 
-# --- 7. 主程式 (Main Execution) ---
+# --- 8. 主程式 (Main Execution) ---
 
-# 更新天氣 (如果還是初始狀態)
 if st.session_state.stylist_profile['weather_cache'] == "查詢中...":
     loc = st.session_state.user_profile['location']
     st.session_state.stylist_profile['weather_cache'] = get_real_weather(loc)
@@ -358,7 +359,7 @@ with st.sidebar:
     
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     
-    # 頭像顯示 (有圖 show 圖，無圖 show 星星)
+    # 頭像顯示 (V11 樣式)
     if s['avatar_image']:
         st.image(s['avatar_image'], use_column_width=True)
     else:
@@ -377,15 +378,15 @@ with st.sidebar:
     if st.button("💬 開始對話", type="primary", use_container_width=True):
         chat_dialog()
 
-    # 試身室 (側邊欄版)
+    # 試身室
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
         if not st.session_state.wardrobe:
             st.caption("衣櫃是空的")
         else:
+            # 簡單分類篩選
             tops = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["上衣","外套","連身裙"]]
-            bots = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["下身褲裝","下身裙裝","下身","褲","裙"]]
+            bots = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["下身","褲","裙"]]
             
-            # 若分類未識別，就全顯示
             if not tops: tops = list(range(len(st.session_state.wardrobe)))
             if not bots: bots = list(range(len(st.session_state.wardrobe)))
 
@@ -398,9 +399,12 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📥 加入衣櫃")
+    
+    # 🔥 使用全域 CATEGORIES，確保選項一致
     c1, c2 = st.columns(2)
-    cat = c1.selectbox("分類", ["上衣", "下身", "連身裙", "外套", "鞋", "袋"])
-    sea = c2.selectbox("季節", ["四季", "春夏", "秋冬"])
+    cat = c1.selectbox("分類", CATEGORIES) 
+    sea = c2.selectbox("季節", SEASONS)
+    
     files = st.file_uploader("圖片", accept_multiple_files=True, key=f"up_{st.session_state.uploader_key}")
     if files: process_upload(files, cat, sea)
     
@@ -414,8 +418,8 @@ st.subheader("🧥 我的衣櫃")
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
 else:
-    cats = list(set([x['category'] for x in st.session_state.wardrobe]))
-    sel = st.multiselect("🔍", cats, placeholder="篩選分類")
+    cats_available = list(set([x['category'] for x in st.session_state.wardrobe]))
+    sel = st.multiselect("🔍", cats_available, placeholder="篩選分類")
     items = [x for x in st.session_state.wardrobe if x['category'] in sel] if sel else st.session_state.wardrobe
     
     cols = st.columns(5)
