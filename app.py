@@ -3,19 +3,13 @@ import base64
 import io
 import uuid
 import time
-import random
+import requests # 改用 Requests 直接連線
+import json
 from PIL import Image
-from openai import OpenAI
 
-# --- 1. 設定 API Key (OpenRouter 版) ---
-# 👇 請將你的新 Key (sk-or-v1-...) 貼在下面引號內
-OPENROUTER_API_KEY = "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" 
-
-# 設定 OpenRouter 客戶端
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
+# --- 1. 設定 API Key (OpenRouter 直連版) ---
+# 👇 這是你截圖中的 Key，我幫你填好了，直接用！
+OPENROUTER_API_KEY = "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"
 
 # --- 2. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
@@ -94,46 +88,62 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 ---
+# --- 4. 核心功能 (Requests 直連) ---
 
 def encode_image(image):
-    """將圖片轉為 Base64"""
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((512, 512)) # 壓縮圖片
+    image.thumbnail((512, 512))
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-def ask_openrouter(text_prompt, image_list=None):
-    if "sk-or-v1" not in OPENROUTER_API_KEY:
-        return "⚠️ 請先在代碼第 12 行貼上你的 OpenRouter Key！"
-
-    messages_content = [{"type": "text", "text": text_prompt}]
+def ask_openrouter_direct(text_prompt, image_list=None):
+    """
+    使用 Requests 直接發送 HTTP POST，繞過任何 Library 問題
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    
+    # 確保 Key 沒有隱藏空格
+    clean_key = OPENROUTER_API_KEY.strip()
+    
+    headers = {
+        "Authorization": f"Bearer {clean_key}",
+        "HTTP-Referer": "https://myapp.com",
+        "X-Title": "My Stylist App",
+        "Content-Type": "application/json"
+    }
+    
+    # 準備內容
+    content_parts = [{"type": "text", "text": text_prompt}]
     
     if image_list:
         for img in image_list:
-            base64_image = encode_image(img)
-            messages_content.append({
+            b64 = encode_image(img)
+            content_parts.append({
                 "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"
-                }
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
             })
+            
+    payload = {
+        "model": "google/gemini-2.0-flash-exp:free", # 免費模型
+        "messages": [
+            {"role": "user", "content": content_parts}
+        ]
+    }
 
     try:
-        completion = client.chat.completions.create(
-            # 使用 Google 最新的 Gemini 2.0 Flash (免費且極快)
-            model="google/gemini-2.0-flash-exp:free", 
-            messages=[{"role": "user", "content": messages_content}],
-            # OpenRouter 必須標頭
-            extra_headers={
-                "HTTP-Referer": "https://myapp.com", 
-                "X-Title": "My Stylist App",
-            }
-        )
-        return completion.choices[0].message.content
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        
+        # 檢查回應
+        if response.status_code == 200:
+            data = response.json()
+            return data['choices'][0]['message']['content']
+        else:
+            # 如果失敗，回傳詳細錯誤代碼以便除錯
+            return f"⚠️ 連線失敗 (Code {response.status_code}): {response.text}"
+            
     except Exception as e:
-        return f"⚠️ 連線錯誤: {str(e)}"
+        return f"⚠️ 網絡錯誤: {str(e)}"
 
 # --- 處理上傳 ---
 def process_upload(files, category, season):
@@ -260,7 +270,8 @@ def chat_dialog():
                     size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
                     sys_msg += f"\n- 單品 ({item['category']}) 尺碼:{size_str}"
 
-                reply = ask_openrouter(sys_msg, img_list)
+                # 改用直連函數
+                reply = ask_openrouter_direct(sys_msg, img_list)
                 st.write(reply) 
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
@@ -269,8 +280,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    key_status = "✅ 已填 Key" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
-    st.caption(f"System v5.1 (Fixed) | {key_status}")
+    st.caption(f"System v6.0 (Requests Direct)")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
