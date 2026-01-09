@@ -40,14 +40,13 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
-    /* 修改：試身室樣式 - 背景透明，移除白框與陰影 */
+    /* 試身室樣式 - 背景透明，移除白框與陰影 */
     .fitting-room-box {
-        background-color: transparent; /* 改為透明 */
+        background-color: transparent; 
         border: none;
         padding: 10px;
-        margin-top: 0px; /* 稍微縮減上方間距 */
+        margin-top: 0px; 
         text-align: center;
-        /* box-shadow: 0 2px 5px rgba(0,0,0,0.05); 已移除陰影 */
     }
     
     /* 調整按鈕樣式，讓設定齒輪緊湊一點 */
@@ -330,10 +329,12 @@ def settings_dialog():
 
     sel_p = st.selectbox("人設風格", list(presets.keys()), index=idx, key="style_select")
     
+    # --- 修正重點 2：移除 st.rerun() ---
+    # 只要這裡更新了 s['persona']，下方的 text_area 在本次渲染就會拿到新值
+    # Streamlit 的 selectbox 改變會自動重新執行此函數，不需要手動 rerun，手動 rerun 會導致 Dialog 關閉
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
-        st.rerun() 
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -420,8 +421,10 @@ with st.sidebar:
     # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # 試身室按鈕 (已修改名稱)
-    if st.button("🎽 試身室", use_container_width=True):
+    # --- 修正重點 1：動態按鈕文字 ---
+    room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
+    
+    if st.button(room_btn_label, use_container_width=True):
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
     
     # 試身室面板 (已移除白框背景)
