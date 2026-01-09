@@ -58,8 +58,8 @@ SEASONS = ["四季", "春夏", "秋冬"]
 try:
     OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 except:
-    st.error("⚠️ 找不到 API Key！請去 Streamlit 網頁版 -> Settings -> Secrets 貼上 Key。")
-    st.stop()
+    # 這裡做了防錯，如果沒有 key 也不會直接報錯，只顯示警告
+    OPENROUTER_API_KEY = "" 
 
 # --- 5. 初始化資料 ---
 if 'wardrobe' not in st.session_state:
@@ -90,6 +90,12 @@ if 'chat_history' not in st.session_state:
 
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
+
+# --- 新增: 試身室的暫存狀態 (用來讓按鈕控制 Sidebar) ---
+if 'fitting_room_top' not in st.session_state:
+    st.session_state.fitting_room_top = None # 存 ID (index)
+if 'fitting_room_bot' not in st.session_state:
+    st.session_state.fitting_room_bot = None # 存 ID (index)
 
 # 預設星星圖
 DEFAULT_STAR_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAABmJLR0QA/wD/AP+gvaeTAAAHLklEQVRogc2ae2xT5x3HP895x7Fz7DgXEqc4IYQ7QiglLRTa0g7a0g603WjXVarS0q5126R2U9qmTW23v6Zpm7Rp66Z2aNqudXTt1G60FChNoS1QCKPJgyYEh8S52I6d+D7n7Y/jiG1s44vj80i+P/zO8/t9f5/v8/19fudIGMJA2O8CDAnzC+S/iWkF0tPTEz1z5swRj8fzlM/ne9jn8z0ciUSm4vF4tFgs5rAsy6yqqjIEQTCrq6s/qa2tfbm+vv792trai/MLpKurK9rR0fG8z+d7c2xs7KBAIPDY2NjYlEAgEAJwuVxYLBaKi4spKioiIyODjIwMcnJyyMrKIiMjg9zcXAoLC1EUBUVR0DQNwzAwTRPDMDAMg4mJCcLhMKFQyIzFYslAIHAmEAi8e+HChb+vW7fu/XkF0t7e/qLf7/9zIBB4eHx8fOrw4cMAZGVlsWbNGlatWkVVVRXV1dWsWrWKkpISXC4XAAzDQNM0dF3HMAwMw0DXdTRNwzRNLMsCYHJykpGREYaGhhgaGmJoaIiBgQEGg8H4yMjIewMDA/9cs2bNqXkDomna04FA4M0jR4480t/fD0BFRQWrV6+mtraW2tpa1q5dS1FREYIgYFkWlmVhWRaCIGCaJqZpYpompmni8XgA8Hg8uFwuXC4Xbrcbv9+P3++no6ODzs5OhoaGEoFA4K329va/nVOgXR0dDzf19f35sGDB6cKCwtpbGykubmZdevWkZeXh2VZ2Lat/bH/e2xbf8Y0TVRVRVVVjh8/zqFDh4hGo4lAIHDq6NGjLzU0NHw4J0BdXd2Tvb29b5w9e/axkpISmpqa2LBhA1lZWQDYto1lWdi2bQOxbRvbtjFNE9M0MU0TwzAwDMM2dF3HMAx0XcfhcOBwOHREHA4HDocDv99PX18fPT09iYGBgbf37dv3ckNDw5/mBAiFQk/39fW9ceTIkcfq6upoampizZo1CILwJ4Qsy8K2bSzLwjRNLMvCtm0sy8I0TQzDQNM0DMNAlmVkWSYnJweHw0FxcTFNTU00NTVx7tw5uru7E8Fg8I0DBw683NDQ8Ke5AhKJRJ4eHBx888iRI4/V1tbS3NxMcXExgiBgWRaWZWGaJpZlYds2giAgCAKCIGBZFrZtY5omlmVhmia6riPLMrIsI8syTqeTvLw8mpqaaGpq4syZM3R3dyeCwWDrwYMHX2poaPjjXAEJBoNP9/f3v3H48OHHamtraWlpwe12Y9s2lmVhWRaCIGDbNoIgIAgCtm1j2zaWZWGaJoZhoOs6siwjy7KNyLKMy+WirKyM5uZmmpub6ezspKurKxEIBFofPnz4pYaGhj/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP/NBZBgMPj0wMDAmy6X67GGhgZKS0uxbRvbtv8IwrZtBEHAtu2HAsiyjK7r6LqOqqrIsoyiKMiyTFZWFs3NzbS0tNDZ2Ul3d3ciEAhs2Ldv3sMP"
@@ -123,6 +129,9 @@ def encode_image(image):
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 def ask_openrouter_direct(text_prompt, image_list=None):
+    if not OPENROUTER_API_KEY:
+        return "⚠️ 請先設定 API Key 才能使用 AI 功能。"
+        
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
@@ -369,6 +378,7 @@ with st.sidebar:
     if st.button("💬 開始對話", type="primary", use_container_width=True):
         chat_dialog()
 
+    # --- 試身室 (Logic modified for one-click try-on) ---
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
         if not st.session_state.wardrobe:
             st.caption("衣櫃是空的")
@@ -376,15 +386,31 @@ with st.sidebar:
             tops = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["上衣","外套","連身裙"]]
             bots = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["下身","褲","裙"]]
             
+            # 如果沒有分類，就全部都顯示，避免報錯
             if not tops: tops = list(range(len(st.session_state.wardrobe)))
             if not bots: bots = list(range(len(st.session_state.wardrobe)))
 
-            c1, c2 = st.columns(2)
-            t = c1.selectbox("上", tops, format_func=lambda x: f"ID:{x}")
-            b = c2.selectbox("下", bots, format_func=lambda x: f"ID:{x}")
+            # 計算預設選項 (根據剛剛按的 👕 按鈕)
+            t_idx = 0
+            if st.session_state.fitting_room_top in tops:
+                t_idx = tops.index(st.session_state.fitting_room_top)
             
-            if t is not None: st.image(st.session_state.wardrobe[t]['image'])
-            if b is not None: st.image(st.session_state.wardrobe[b]['image'])
+            b_idx = 0
+            if st.session_state.fitting_room_bot in bots:
+                b_idx = bots.index(st.session_state.fitting_room_bot)
+
+            c1, c2 = st.columns(2)
+            t = c1.selectbox("上", tops, index=t_idx, format_func=lambda x: f"ID:{x}", key="sb_top")
+            b = c2.selectbox("下", bots, index=b_idx, format_func=lambda x: f"ID:{x}", key="sb_bot")
+            
+            # 更新 Session State 以保持同步
+            st.session_state.fitting_room_top = t
+            st.session_state.fitting_room_bot = b
+            
+            if t is not None and t < len(st.session_state.wardrobe): 
+                st.image(st.session_state.wardrobe[t]['image'])
+            if b is not None and b < len(st.session_state.wardrobe): 
+                st.image(st.session_state.wardrobe[b]['image'])
 
     st.divider()
     st.subheader("📥 加入衣櫃")
@@ -404,7 +430,7 @@ with st.sidebar:
 # 主畫面
 st.subheader("🧥 我的衣櫃")
 
-# 季節切換 (Main Feature V20.0)
+# 季節切換
 season_filter = st.radio("季節篩選", ["全部", "春夏", "秋冬"], index=0, horizontal=True, label_visibility="collapsed")
 
 if not st.session_state.wardrobe:
@@ -421,7 +447,7 @@ else:
         elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]:
             filtered_items.append(item)
 
-    # 2. 再篩選分類 (基於已過濾季節的清單)
+    # 2. 再篩選分類
     cats_available = list(set([x['category'] for x in filtered_items]))
     sel = st.multiselect("🔍", cats_available, placeholder="篩選分類")
     
@@ -432,5 +458,23 @@ else:
         with cols[i % 5]:
             real_id = st.session_state.wardrobe.index(item)
             st.image(item['image'], caption=f"ID: {real_id}")
-            if st.button("✏️", key=f"e_{item['id']}", use_container_width=True):
-                 edit_item_dialog(item, real_id)
+            
+            # --- 修改重點：這裡把按鈕分成兩欄 ---
+            c_edit, c_try = st.columns([1, 1])
+            
+            with c_edit:
+                # 編輯按鈕
+                if st.button("✏️", key=f"e_{item['id']}"):
+                     edit_item_dialog(item, real_id)
+            
+            with c_try:
+                # 試身按鈕
+                if st.button("👕", key=f"t_{item['id']}"):
+                    # 判斷是上身還是下身
+                    if item['category'] in ["上衣", "外套", "連身裙"]:
+                        st.session_state.fitting_room_top = real_id
+                    else:
+                        st.session_state.fitting_room_bot = real_id
+                    
+                    st.toast(f"已將 ID:{real_id} 加入試身室！")
+                    st.rerun() # 重新整理頁面，讓左邊試身室更新
