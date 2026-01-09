@@ -51,7 +51,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. 全局常數設定 (統一分類清單) ---
-# 🔥 關鍵修正：確保這裡的清單與編輯時的清單完全一致
 CATEGORIES = ["上衣", "下身", "連身裙", "外套", "鞋", "配件"]
 SEASONS = ["四季", "春夏", "秋冬"]
 
@@ -190,10 +189,8 @@ def edit_item_dialog(item, index):
     c1, c2 = st.columns([1, 1])
     with c1: st.image(item['image'])
     with c2:
-        # 🔥 修正：使用全局 CATEGORIES，確保選項一致
         try: idx = CATEGORIES.index(item['category'])
-        except: idx = 0 # 如果找不到 (例如舊數據)，預設選第一個
-        
+        except: idx = 0
         item['category'] = st.selectbox("分類", CATEGORIES, index=idx)
         
         try: s_idx = SEASONS.index(item.get('season', '四季'))
@@ -201,7 +198,6 @@ def edit_item_dialog(item, index):
         item['season'] = st.selectbox("季節", SEASONS, index=s_idx)
         
         st.caption("詳細尺碼")
-        # 根據分類顯示不同輸入框
         if any(x in item['category'] for x in ["上衣", "外套", "連身裙"]):
             item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data']['length'])
             item['size_data']['width'] = st.text_input("胸寬 (cm)", value=item['size_data']['width'])
@@ -249,14 +245,12 @@ def settings_dialog():
     f = st.file_uploader("更換頭像 (長方形效果最佳)", type=['png','jpg'])
     if f: s['avatar_image'] = f.getvalue()
     
-    # 人設選擇 (即時生效)
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
         "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。"
     }
     
-    # 查找當前人設的 Key
     current_preset = None
     for k, v in presets.items():
         if v == s['persona']:
@@ -359,16 +353,13 @@ with st.sidebar:
     
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     
-    # 頭像顯示 (V11 樣式)
     if s['avatar_image']:
         st.image(s['avatar_image'], use_column_width=True)
     else:
         st.image(DEFAULT_STAR_ICON, use_column_width=True)
     
-    # 名字 + 齒輪
     c_name, c_gear = st.columns([4, 1])
-    with c_name: 
-        st.markdown(f"### {s['name']}")
+    with c_name: st.markdown(f"### {s['name']}")
     with c_gear: 
         if st.button("⚙️"): settings_dialog()
             
@@ -378,12 +369,10 @@ with st.sidebar:
     if st.button("💬 開始對話", type="primary", use_container_width=True):
         chat_dialog()
 
-    # 試身室
     with st.expander("👗 試身室 (Mix & Match)", expanded=True):
         if not st.session_state.wardrobe:
             st.caption("衣櫃是空的")
         else:
-            # 簡單分類篩選
             tops = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["上衣","外套","連身裙"]]
             bots = [i for i, x in enumerate(st.session_state.wardrobe) if x['category'] in ["下身","褲","裙"]]
             
@@ -400,7 +389,6 @@ with st.sidebar:
     st.divider()
     st.subheader("📥 加入衣櫃")
     
-    # 🔥 使用全域 CATEGORIES，確保選項一致
     c1, c2 = st.columns(2)
     cat = c1.selectbox("分類", CATEGORIES) 
     sea = c2.selectbox("季節", SEASONS)
@@ -415,15 +403,32 @@ with st.sidebar:
 
 # 主畫面
 st.subheader("🧥 我的衣櫃")
+
+# 季節切換 (Main Feature V20.0)
+season_filter = st.radio("季節篩選", ["全部", "春夏", "秋冬"], index=0, horizontal=True, label_visibility="collapsed")
+
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
 else:
-    cats_available = list(set([x['category'] for x in st.session_state.wardrobe]))
+    # 1. 先篩選季節
+    filtered_items = []
+    for item in st.session_state.wardrobe:
+        iseason = item.get('season', '四季')
+        if season_filter == "全部":
+            filtered_items.append(item)
+        elif season_filter == "春夏" and iseason in ["四季", "春夏"]:
+            filtered_items.append(item)
+        elif season_filter == "秋冬" and iseason in ["四季", "秋冬"]:
+            filtered_items.append(item)
+
+    # 2. 再篩選分類 (基於已過濾季節的清單)
+    cats_available = list(set([x['category'] for x in filtered_items]))
     sel = st.multiselect("🔍", cats_available, placeholder="篩選分類")
-    items = [x for x in st.session_state.wardrobe if x['category'] in sel] if sel else st.session_state.wardrobe
+    
+    final_display = [x for x in filtered_items if x['category'] in sel] if sel else filtered_items
     
     cols = st.columns(5)
-    for i, item in enumerate(items):
+    for i, item in enumerate(final_display):
         with cols[i % 5]:
             real_id = st.session_state.wardrobe.index(item)
             st.image(item['image'], caption=f"ID: {real_id}")
