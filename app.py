@@ -5,9 +5,10 @@ import uuid
 import time
 import requests
 import json
+import re
 from PIL import Image
 
-# --- 1. 設定 API Key (從 Secrets 讀取) ---
+# --- 1. 設定 API Key ---
 try:
     OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 except:
@@ -58,7 +59,7 @@ st.markdown("""
         align-items: center;
     }
     div[data-testid="stImage"] img {
-        height: 220px !important;
+        height: 180px !important; 
         object-fit: contain !important;
     }
     .stylist-container {
@@ -87,11 +88,10 @@ st.markdown("""
         height: 100%;
         object-fit: cover;
     }
-    button[kind="secondary"] { border: 1px solid #ddd; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (自動切換模型版) ---
+# --- 4. 核心功能 ---
 
 def encode_image(image):
     buffered = io.BytesIO()
@@ -119,12 +119,10 @@ def ask_openrouter_direct(text_prompt, image_list=None):
                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
             })
     
-    # 🔥 備用模型清單 (如果第一個忙線，就試第二個，如此類推)
     models_to_try = [
-        "google/gemini-2.0-flash-exp:free",      # 首選：最新最強
-        "google/gemini-1.5-flash:free",          # 次選：穩定快速
-        "google/gemini-1.5-pro:free",            # 三選：聰明但慢
-        "meta-llama/llama-3.2-11b-vision-instruct:free" # 最後防線：Meta模型
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemini-1.5-flash:free",
+        "meta-llama/llama-3.2-11b-vision-instruct:free"
     ]
     
     for model in models_to_try:
@@ -132,26 +130,24 @@ def ask_openrouter_direct(text_prompt, image_list=None):
             "model": model,
             "messages": [{"role": "user", "content": content_parts}]
         }
-
         try:
-            # 嘗試發送請求
             response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
-            
             if response.status_code == 200:
                 data = response.json()
                 if 'choices' in data and len(data['choices']) > 0:
                     content = data['choices'][0]['message']['content']
-                    if content: return content # 成功！直接回傳
-            
-            # 如果失敗 (429 忙線, 404 找不到, 503 維護中)，就試下一個模型
-            # st.toast(f"⚠️ {model} 忙線中，嘗試切換...", icon="🔄") # 除錯用
-            time.sleep(1) # 稍等一下再試下一個
+                    if content: return content
+            time.sleep(1)
             continue 
-                
         except Exception:
-            continue # 網絡錯誤也試下一個
+            continue
             
-    return "⚠️ 所有線路都非常繁忙，Stylist 暫時無法回應。請過一分鐘再試試！"
+    return "⚠️ 線路繁忙，請稍後再試。"
+
+def extract_ids_from_text(text):
+    """從 AI 回覆中找出 [ID: x] 的編號"""
+    ids = re.findall(r"ID[:：]\s*(\d+)", text, re.IGNORECASE)
+    return [int(id_str) for id_str in ids]
 
 # --- 處理上傳 ---
 def process_upload(files, category, season):
@@ -175,7 +171,8 @@ def process_upload(files, category, season):
 # --- 5. Dialogs ---
 
 @st.dialog("✏️ 編輯單品")
-def edit_item_dialog(item):
+def edit_item_dialog(item, index):
+    st.caption(f"正在編輯 Item #{index}")
     c1, c2 = st.columns([1, 1])
     with c1: st.image(item['image'])
     with c2:
@@ -254,10 +251,19 @@ def chat_dialog():
 
     st.divider()
 
+    # 顯示歷史訊息
     for msg in st.session_state.chat_history:
         role = msg["role"]
         with st.chat_message(role):
             st.write(msg["content"])
+            # 如果這條訊息有附帶圖片 ID，就顯示出來
+            if "related_ids" in msg and msg["related_ids"]:
+                cols = st.columns(len(msg["related_ids"]))
+                for idx, item_id in enumerate(msg["related_ids"]):
+                    if 0 <= item_id < len(st.session_state.wardrobe):
+                        with cols[idx]:
+                            item = st.session_state.wardrobe[item_id]
+                            st.image(item['image'], caption=f"ID: {item_id}")
 
     if user_in := st.chat_input("想問咩？"):
         st.session_state.chat_history.append({"role": "user", "content": user_in})
@@ -265,31 +271,55 @@ def chat_dialog():
             st.write(user_in)
         
         with st.chat_message("assistant"):
-            with st.spinner("思考中... (Stylist 正在翻找衣櫃)"):
+            with st.spinner("Stylist 正在衣櫃翻找..."):
+                # 構建 Prompt：強制加入 ID
                 sys_msg = (
                     f"你是{s['name']}。{s['persona']}\n"
                     f"用戶：{p['name']}, {p['location']} ({s['current_weather']})。\n"
                     f"用戶問：{user_in}\n"
-                    f"請從衣櫃給建議 (如有)。"
+                    f"**重要規則：當你建議某件單品時，必須明確標註它的ID，格式為 [ID: 數字]。例如：'我建議你穿 [ID: 0] 這件白T恤'。**\n"
+                    f"衣櫃清單如下："
                 )
                 img_list = []
-                # 為了避免 Request 太大，我們只傳前 4 張最相關的圖片
-                # (這裡簡單地傳前 4 張，進階可以做篩選)
-                for item in st.session_state.wardrobe[:4]:
+                # 為了節省流量，這裡示範傳全部，但最好限制數量
+                for i, item in enumerate(st.session_state.wardrobe):
                     img_list.append(item['image'])
                     size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
-                    sys_msg += f"\n- 單品 ({item['category']}) 尺碼:{size_str}"
+                    # 這裡將 ID 告訴 AI
+                    sys_msg += f"\n- [ID: {i}] {item['category']} (尺碼:{size_str})"
 
                 reply = ask_openrouter_direct(sys_msg, img_list)
-                st.write(reply) 
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                
+                # 自動抓取 AI 提到的 ID
+                found_ids = extract_ids_from_text(reply)
+                
+                st.write(reply)
+                if found_ids:
+                    st.caption("✨ 建議搭配：")
+                    cols = st.columns(len(found_ids))
+                    valid_ids = []
+                    for idx, item_id in enumerate(found_ids):
+                        if 0 <= item_id < len(st.session_state.wardrobe):
+                            valid_ids.append(item_id)
+                            with cols[idx]:
+                                item = st.session_state.wardrobe[item_id]
+                                st.image(item['image'], caption=f"ID: {item_id}")
+                    
+                    # 儲存到歷史紀錄，以便之後重看
+                    st.session_state.chat_history.append({
+                        "role": "assistant", 
+                        "content": reply,
+                        "related_ids": valid_ids
+                    })
+                else:
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
 # --- 7. 主介面 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v11.0 (Auto-Switch Models) | Ready")
+    st.caption(f"System v12.0 (Visual Recall) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
@@ -334,9 +364,12 @@ else:
     sel = st.multiselect("🔍", cats, placeholder="篩選分類")
     items = [x for x in st.session_state.wardrobe if x['category'] in sel] if sel else st.session_state.wardrobe
     
+    # 這裡加入 ID 顯示，方便用戶對照
     cols = st.columns(5)
     for i, item in enumerate(items):
         with cols[i % 5]:
-            st.image(item['image'])
+            # 找出這個 item 在原始 wardrobe 中的真實 ID
+            real_id = st.session_state.wardrobe.index(item)
+            st.image(item['image'], caption=f"ID: {real_id}")
             if st.button("✏️", key=f"e_{item['id']}", use_container_width=True):
-                 edit_item_dialog(item)
+                 edit_item_dialog(item, real_id)
