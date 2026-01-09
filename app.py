@@ -23,18 +23,18 @@ if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {
         "name": "User", 
         "location": "香港",
-        "gender": "女", # 預設
-        "height": 160,  # 預設
-        "weight": 50,   # 新增預設
-        "measurements": {"bust": 32, "waist": 24, "hips": 34}, # 新增三圍
+        "gender": "女",
+        "height": 160, 
+        "measurements": {"bust": 0, "waist": 0, "hips": 0},
         "style_pref": "簡約休閒"
     }
 
 if 'stylist_profile' not in st.session_state:
     st.session_state.stylist_profile = {
         "name": "你的專屬 Stylist",
-        # 移除了 avatar_type 和 avatar_emoji 的選擇邏輯，只保留 image
-        "avatar_image": None, 
+        "avatar_type": "emoji",
+        "avatar_emoji": "✨",
+        "avatar_image": None,
         "persona": "一位貼心的專業形象顧問，語氣親切、專業。",
         "current_weather": "晴朗 24°C"
     }
@@ -45,12 +45,11 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 3. 頁面設定與 CSS (重點修改) ---
+# --- 3. 頁面設定 ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
     <style>
-    /* 對話框內的圖片樣式 */
     div[data-testid="stImage"] {
         background-color: #f9f9f9;
         border-radius: 10px;
@@ -63,46 +62,36 @@ st.markdown("""
         height: 180px !important; 
         object-fit: contain !important;
     }
-    
-    /* Sidebar 容器 */
     .stylist-container {
-        background-color: #ffffff;
-        border-radius: 0px; /* 變成長方型 */
-        padding: 0px;
-        text-align: center;
-        margin-bottom: 20px;
-        overflow: hidden;
-    }
-
-    /* 新的長方形 Stylist 頭像框 */
-    .stylist-avatar-box {
-        width: 100%;
-        height: 300px; /* 固定高度，讓它看起來像一張海報/卡片 */
         background-color: #f0f2f6;
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 20px;
+    }
+    .avatar-circle {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        margin: 0 auto 10px auto;
+        border: 3px solid #06b6d4;
+        background-color: white;
         display: flex;
         justify-content: center;
         align-items: center;
         overflow: hidden;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        border: 1px solid #ddd;
+        font-size: 50px;
     }
-    
-    /* 當有圖片時 */
-    .stylist-avatar-box img {
+    .avatar-circle img {
         width: 100%;
         height: 100%;
-        object-fit: cover; /* 填滿整個框 */
+        object-fit: cover;
     }
-
-    /* 當沒有圖片時 (預設星星) */
-    .default-star {
-        font-size: 100px;
-        color: #FFD700;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+    /* 調整按鈕樣式 */
+    div[data-testid="column"] button {
+        margin-top: 0px;
     }
-
-    button[kind="secondary"] { border: 1px solid #ddd; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -163,6 +152,7 @@ def extract_ids_from_text(text):
     ids = re.findall(r"ID[:：]\s*(\d+)", text, re.IGNORECASE)
     return [int(id_str) for id_str in ids]
 
+# --- 處理上傳 ---
 def process_upload(files, category, season):
     if not files: return
     for file in files:
@@ -210,47 +200,45 @@ def edit_item_dialog(item, index):
 
 @st.dialog("⚙️ 設定")
 def settings_dialog():
-    st.subheader("👤 我的身體密碼")
-    st.caption("提供準確數據，AI 才能給你最顯瘦的建議！")
-    
+    st.subheader("👤 用戶資料")
     p = st.session_state.user_profile
+    p['name'] = st.text_input("暱稱", value=p['name'])
+    p['location'] = st.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
     
-    # 基本資料
-    c1, c2 = st.columns(2)
-    p['name'] = c1.text_input("暱稱", value=p['name'])
-    p['location'] = c2.selectbox("地區", ["香港", "台北", "東京", "首爾", "倫敦"], index=0)
-    
-    # 身型數據 (新增)
-    st.markdown("---")
-    c_gen, c_h, c_w = st.columns(3)
-    p['gender'] = c_gen.selectbox("性別", ["女", "男", "其他"], index=0 if p.get('gender')=='女' else 1)
-    p['height'] = c_h.number_input("身高 (cm)", value=p.get('height', 160))
-    p['weight'] = c_w.number_input("體重 (kg)", value=p.get('weight', 50))
-    
-    # 三圍數據 (新增)
-    st.caption("三圍 (吋/cm 自選)")
-    c_b, c_wa, c_hi = st.columns(3)
-    p['measurements']['bust'] = c_b.number_input("胸圍", value=p['measurements'].get('bust', 0))
-    p['measurements']['waist'] = c_wa.number_input("腰圍", value=p['measurements'].get('waist', 0))
-    p['measurements']['hips'] = c_hi.number_input("臀圍", value=p['measurements'].get('hips', 0))
-    
-    st.subheader("✨ Stylist 形象設定")
+    st.subheader("✨ Stylist 設定")
     s = st.session_state.stylist_profile
     s['name'] = st.text_input("Stylist 名字", value=s['name'])
     
-    # 強制使用圖片上傳，沒有 emoji 選項了
-    f = st.file_uploader("上傳 Stylist 照片 (長方形效果最佳)", type=['png','jpg'])
-    if f: 
-        s['avatar_image'] = f.getvalue()
-        st.success("照片已更新！")
+    use_img = st.checkbox("使用圖片頭像")
+    if use_img:
+        s['avatar_type'] = 'image'
+        f = st.file_uploader("上傳頭像", type=['png','jpg'])
+        if f: s['avatar_image'] = f.getvalue()
+    else:
+        s['avatar_type'] = 'emoji'
+        s['avatar_emoji'] = st.text_input("Emoji", value=s['avatar_emoji'])
     
-    # 清除照片按鈕
-    if s['avatar_image'] and st.button("還原預設星星圖"):
-        s['avatar_image'] = None
+    # --- 👇 這裡修復了！預設人設選單回來了！ ---
+    st.markdown("#### 🎭 人設風格 (Presets)")
+    presets = {
+        "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
+        "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
+        "溫柔男友": "充滿愛意的男友，不管穿什麼都稱讚。",
+        "霸道總裁": "強勢但寵溺的總裁，不准穿太露。",
+        "星級化妝師": "著重整體妝髮搭配的造型師，說話帶點英倫腔。"
+    }
+    
+    selected_p = st.selectbox("快速選擇風格", list(presets.keys()))
+    if st.button("⬇️ 套用此風格"):
+        s['persona'] = presets[selected_p]
+        st.success(f"已切換為：{selected_p}")
+        time.sleep(0.5)
         st.rerun()
-
-    s['persona'] = st.text_area("指令 (Persona)", value=s['persona'])
-    if st.button("完成並儲存", type="primary", use_container_width=True): st.rerun()
+    
+    s['persona'] = st.text_area("自訂指令 (Persona)", value=s['persona'], height=100)
+    
+    if st.button("完成並儲存", type="primary", use_container_width=True):
+        st.rerun()
 
 # --- 6. 聊天功能 ---
 @st.dialog("💬 與 Stylist 對話", width="large")
@@ -258,14 +246,13 @@ def chat_dialog():
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 聊天室頂部資訊
-    c1, c2 = st.columns([1, 5])
+    c1, c2 = st.columns([1, 4])
     with c1:
-        # 小圓頭像 (僅在對話框顯示小圖)
-        if s['avatar_image']:
-            st.image(s['avatar_image'], width=50)
+        if s['avatar_type'] == 'image' and s['avatar_image']:
+            try: st.image(s['avatar_image'], width=60)
+            except: st.write(s['avatar_emoji'])
         else:
-            st.markdown("✨")
+            st.markdown(f"<h1>{s['avatar_emoji']}</h1>", unsafe_allow_html=True)
     with c2:
         st.subheader(s['name'])
         st.caption(f"📍 {p['location']} | {s['current_weather']}")
@@ -290,18 +277,13 @@ def chat_dialog():
             st.write(user_in)
         
         with st.chat_message("assistant"):
-            with st.spinner("Stylist 正在思考..."):
-                # 構建 Prompt：加入用戶詳細身型數據
-                measure_str = f"胸{p['measurements']['bust']}/腰{p['measurements']['waist']}/臀{p['measurements']['hips']}"
-                user_details = f"{p['gender']}, 身高{p['height']}cm, 體重{p['weight']}kg, 三圍: {measure_str}"
-                
+            with st.spinner("Stylist 正在衣櫃翻找..."):
                 sys_msg = (
                     f"你是{s['name']}。{s['persona']}\n"
-                    f"用戶資料：{p['name']}, {p['location']}, {user_details}。\n"
+                    f"用戶：{p['name']}, {p['location']} ({s['current_weather']})。\n"
                     f"用戶問：{user_in}\n"
-                    f"**請根據用戶的身型數據提供修飾身形的建議。**\n"
-                    f"**規則：建議單品時，必須標註 [ID: 數字]。**\n"
-                    f"衣櫃清單："
+                    f"**重要規則：當你建議某件單品時，必須明確標註它的ID，格式為 [ID: 數字]。例如：'我建議你穿 [ID: 0] 這件白T恤'。**\n"
+                    f"衣櫃清單如下："
                 )
                 img_list = []
                 for i, item in enumerate(st.session_state.wardrobe):
@@ -310,11 +292,11 @@ def chat_dialog():
                     sys_msg += f"\n- [ID: {i}] {item['category']} (尺碼:{size_str})"
 
                 reply = ask_openrouter_direct(sys_msg, img_list)
-                
                 found_ids = extract_ids_from_text(reply)
+                
                 st.write(reply)
                 if found_ids:
-                    st.caption("✨ 建議單品：")
+                    st.caption("✨ 建議搭配：")
                     cols = st.columns(len(found_ids))
                     valid_ids = []
                     for idx, item_id in enumerate(found_ids):
@@ -332,41 +314,33 @@ def chat_dialog():
                 else:
                     st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
-# --- 7. 主介面 (Sidebar 改版) ---
+# --- 7. 主介面 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v13.0 (Full UI) | Ready")
+    st.caption(f"System v13.0 (Fixed UI) | Ready")
 
-    # --- 新的 Stylist 頭像區 ---
-    # 使用 HTML/CSS 繪製長方形框
-    if s['avatar_image']:
-        # 如果有圖片，轉成 Base64 顯示在 HTML img 標籤中以符合 CSS
-        b64_img = base64.b64encode(s['avatar_image']).decode()
-        avatar_html = f"""
-        <div class="stylist-avatar-box">
-            <img src="data:image/png;base64,{b64_img}">
-        </div>
-        """
+    st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
+    st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
+    if s['avatar_type'] == 'image' and s['avatar_image']:
+        try: st.image(s['avatar_image'], use_column_width=True)
+        except: st.markdown(s['avatar_emoji'])
     else:
-        # 如果沒有圖片，顯示預設大星星
-        avatar_html = """
-        <div class="stylist-avatar-box">
-            <div class="default-star">✨</div>
-        </div>
-        """
+        st.markdown(s['avatar_emoji'])
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    st.markdown(avatar_html, unsafe_allow_html=True)
-    # ---------------------------
+    # --- 👇 這裡修改了 UI！名字和 Gear Icon 並排 ---
+    c_name, c_gear = st.columns([4, 1])
+    with c_name:
+        st.markdown(f"<h3 style='margin:0; padding:0; text-align:right'>{s['name']}</h3>", unsafe_allow_html=True)
+    with c_gear:
+        # 小小的 Gear Icon 按鈕
+        if st.button("⚙️", key="setting_btn_sidebar", help="設定 Stylist"):
+            settings_dialog()
     
-    st.markdown(f"<h3 style='text-align: center;'>{s['name']}</h3>", unsafe_allow_html=True)
-    
-    c_btn = st.columns([1,2,1])
-    with c_btn[1]:
-        if st.button("⚙️ 設定 / 完善資料"): settings_dialog()
-    
-    st.caption(f"早安 {p['name']} | {s['current_weather']}")
+    st.markdown(f"<div style='text-align:center; color:grey; margin-top:5px'>早安 {p['name']} | {s['current_weather']}</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
     if st.button("💬 開始對話", type="primary", use_container_width=True):
         chat_dialog()
