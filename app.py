@@ -91,7 +91,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (自動重試版) ---
+# --- 4. 核心功能 (自動切換模型版) ---
 
 def encode_image(image):
     buffered = io.BytesIO()
@@ -118,39 +118,40 @@ def ask_openrouter_direct(text_prompt, image_list=None):
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
             })
-            
-    payload = {
-        "model": "google/gemini-2.0-flash-exp:free",
-        "messages": [{"role": "user", "content": content_parts}]
-    }
+    
+    # 🔥 備用模型清單 (如果第一個忙線，就試第二個，如此類推)
+    models_to_try = [
+        "google/gemini-2.0-flash-exp:free",      # 首選：最新最強
+        "google/gemini-1.5-flash:free",          # 次選：穩定快速
+        "google/gemini-1.5-pro:free",            # 三選：聰明但慢
+        "meta-llama/llama-3.2-11b-vision-instruct:free" # 最後防線：Meta模型
+    ]
+    
+    for model in models_to_try:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": content_parts}]
+        }
 
-    # 🔥 自動重試機制 (最多試 3 次)
-    max_retries = 3
-    for attempt in range(max_retries):
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            # 嘗試發送請求
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
             
-            # 如果成功 (200 OK)
             if response.status_code == 200:
                 data = response.json()
                 if 'choices' in data and len(data['choices']) > 0:
-                    return data['choices'][0]['message']['content']
+                    content = data['choices'][0]['message']['content']
+                    if content: return content # 成功！直接回傳
             
-            # 如果是 429 (太繁忙)，就等一下再試
-            elif response.status_code == 429:
-                if attempt < max_retries - 1:
-                    time.sleep(2) # 等 2 秒
-                    continue # 重試
-                else:
-                    return "⚠️ 線路太繁忙，試了幾次都擠不進去。請過幾秒再按一次！"
-            
-            else:
-                return f"⚠️ 連線錯誤 (Code {response.status_code}): {response.text}"
+            # 如果失敗 (429 忙線, 404 找不到, 503 維護中)，就試下一個模型
+            # st.toast(f"⚠️ {model} 忙線中，嘗試切換...", icon="🔄") # 除錯用
+            time.sleep(1) # 稍等一下再試下一個
+            continue 
                 
-        except Exception as e:
-            return f"⚠️ 網絡錯誤: {str(e)}"
+        except Exception:
+            continue # 網絡錯誤也試下一個
             
-    return "⚠️ 未知錯誤"
+    return "⚠️ 所有線路都非常繁忙，Stylist 暫時無法回應。請過一分鐘再試試！"
 
 # --- 處理上傳 ---
 def process_upload(files, category, season):
@@ -264,7 +265,7 @@ def chat_dialog():
             st.write(user_in)
         
         with st.chat_message("assistant"):
-            with st.spinner("思考中... (線路繁忙時會自動重試)"):
+            with st.spinner("思考中... (Stylist 正在翻找衣櫃)"):
                 sys_msg = (
                     f"你是{s['name']}。{s['persona']}\n"
                     f"用戶：{p['name']}, {p['location']} ({s['current_weather']})。\n"
@@ -272,7 +273,9 @@ def chat_dialog():
                     f"請從衣櫃給建議 (如有)。"
                 )
                 img_list = []
-                for item in st.session_state.wardrobe[:3]:
+                # 為了避免 Request 太大，我們只傳前 4 張最相關的圖片
+                # (這裡簡單地傳前 4 張，進階可以做篩選)
+                for item in st.session_state.wardrobe[:4]:
                     img_list.append(item['image'])
                     size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
                     sys_msg += f"\n- 單品 ({item['category']}) 尺碼:{size_str}"
@@ -286,7 +289,7 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    st.caption(f"System v10.0 (Auto-Retry) | Ready")
+    st.caption(f"System v11.0 (Auto-Switch Models) | Ready")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
