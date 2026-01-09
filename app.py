@@ -8,8 +8,8 @@ from PIL import Image
 from openai import OpenAI
 
 # --- 1. 設定 API Key (OpenRouter 版) ---
-# 👇 請將你的 sk-or-v1-... Key 貼在下面引號內
-OPENROUTER_API_KEY = "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" 
+# 👇 請將你的新 Key (sk-or-v1-...) 貼在下面引號內
+OPENROUTER_API_KEY = "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" 
 
 # 設定 OpenRouter 客戶端
 client = OpenAI(
@@ -97,9 +97,10 @@ st.markdown("""
 # --- 4. 核心功能 ---
 
 def encode_image(image):
+    """將圖片轉為 Base64"""
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((512, 512))
+    image.thumbnail((512, 512)) # 壓縮圖片
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
@@ -121,8 +122,10 @@ def ask_openrouter(text_prompt, image_list=None):
 
     try:
         completion = client.chat.completions.create(
+            # 使用 Google 最新的 Gemini 2.0 Flash (免費且極快)
             model="google/gemini-2.0-flash-exp:free", 
             messages=[{"role": "user", "content": messages_content}],
+            # OpenRouter 必須標頭
             extra_headers={
                 "HTTP-Referer": "https://myapp.com", 
                 "X-Title": "My Stylist App",
@@ -266,8 +269,8 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    key_status = "✅ OpenRouter Ready" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
-    st.caption(f"System v5.0 | {key_status}")
+    key_status = "✅ 已填 Key" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
+    st.caption(f"System v5.1 (Fixed) | {key_status}")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
