@@ -5,17 +5,19 @@ import uuid
 import time
 import random
 
-# --- 1. 設定 API Key (暴力測試版) ---
-# 👇 請將你剛剛複製的 AIza... 密碼直接貼在下面的引號內
+# ==========================================
+# 👇 請在下方貼上你的 Google AI Studio API Key
+# ==========================================
 MY_DIRECT_KEY = "AIzaSyAznNyRqvkq7DRfkq1a3RyoZXgKOmIF0oo" 
 
+# 設定 API
 try:
     genai.configure(api_key=MY_DIRECT_KEY)
 except Exception as e:
-    st.error(f"API Key 錯誤: {e}")
-    st.stop()
+    # 如果 Key 有問題，這裡不會崩潰，而是會在畫面上顯示錯誤
+    pass
 
-# --- 2. 初始化資料 ---
+# --- 初始化資料 ---
 if 'wardrobe' not in st.session_state:
     st.session_state.wardrobe = [] 
 
@@ -45,12 +47,11 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 3. 頁面設定與 CSS (你最滿意的 UI) ---
+# --- 頁面設定 ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. 圖片卡片 */
     div[data-testid="stImage"] {
         background-color: #f9f9f9;
         border-radius: 10px;
@@ -63,8 +64,6 @@ st.markdown("""
         height: 220px !important;
         object-fit: contain !important;
     }
-    
-    /* 2. 造型師卡片 (大頭像) */
     .stylist-container {
         background-color: #f0f2f6;
         border-radius: 15px;
@@ -95,7 +94,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (自動找模型) ---
+# --- 功能函數 ---
 
 def compress_image(image):
     image = image.convert('RGB')
@@ -103,33 +102,24 @@ def compress_image(image):
     return image
 
 def ask_gemini(inputs):
-    """
-    智能連接：自動嘗試所有可用的模型，直到成功為止
-    """
-    # 這裡列出所有可能的模型名稱，程式會一個個試
-    models_to_try = [
-        'gemini-1.5-flash', 
-        'gemini-1.5-pro',
-        'gemini-1.0-pro-vision', # 舊版 Vision
-        'gemini-pro-vision',
-        'gemini-pro' # 純文字後備
-    ]
+    """測試連接"""
+    # 如果用戶忘記貼 Key
+    if "在此貼上" in MY_DIRECT_KEY:
+        return "⚠️ 請先在 app.py 第 11 行貼上你的 API Key！"
+
+    models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    err_log = []
     
-    last_error = ""
-    
-    for model_name in models_to_try:
+    for m in models:
         try:
-            model = genai.GenerativeModel(model_name)
-            # 嘗試生成
+            model = genai.GenerativeModel(m)
             response = model.generate_content(inputs)
             return response.text
         except Exception as e:
-            last_error = str(e)
-            # 如果是圖片問題導致 gemini-pro 失敗，這是預期的，繼續試下一個
+            err_log.append(f"{m}: {str(e)}")
             continue
-
-    # 如果全部都失敗
-    return f"⚠️ 所有模型都連線失敗。請檢查: \n1. Sidebar 版本是否 >= 0.7.0 \n2. 最後錯誤: {last_error}"
+            
+    return f"❌ 全部失敗。請檢查 API Key 是否正確。\n錯誤: {err_log}"
 
 def process_upload(files, category, season):
     if not files: return
@@ -149,7 +139,7 @@ def process_upload(files, category, season):
     time.sleep(0.5)
     st.rerun()
 
-# --- 5. Dialogs ---
+# --- Dialogs ---
 
 @st.dialog("✏️ 編輯單品")
 def edit_item_dialog(item):
@@ -212,13 +202,12 @@ def settings_dialog():
     s['persona'] = st.text_area("指令", value=s['persona'])
     if st.button("完成", type="primary"): st.rerun()
 
-# --- 6. 聊天功能 ---
+# --- 聊天 ---
 @st.dialog("💬 與 Stylist 對話", width="large")
 def chat_dialog():
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # Header
     c1, c2 = st.columns([1, 4])
     with c1:
         if s['avatar_type'] == 'image' and s['avatar_image']:
@@ -262,17 +251,16 @@ def chat_dialog():
                 st.write(reply) 
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
-# --- 7. 主介面 ---
+# --- 主介面 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 顯示版本資訊 (Debugging)
-    st.caption(f"System v2.0 | AI Lib: {genai.__version__}")
+    # Debug Info
+    key_status = "✅ 已設定" if "AIza" in MY_DIRECT_KEY else "❌ 未設定"
+    st.caption(f"System v3.0 | Key: {key_status}")
 
-    # 造型師卡片
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
-    
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
     if s['avatar_type'] == 'image' and s['avatar_image']:
         try: st.image(s['avatar_image'], use_column_width=True)
@@ -307,7 +295,6 @@ with st.sidebar:
         st.session_state.wardrobe = []
         st.rerun()
 
-# --- 8. 主衣櫃 ---
 st.subheader("🧥 我的衣櫃")
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
