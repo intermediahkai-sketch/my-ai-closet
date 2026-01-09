@@ -148,6 +148,32 @@ def encode_image(image):
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+# --- 新增：Save/Load 輔助函式 ---
+def convert_wardrobe_to_json():
+    # 將衣櫃數據轉換為可儲存的 JSON 格式 (圖片轉 Base64)
+    export_data = []
+    for item in st.session_state.wardrobe:
+        # 複製 item 避免影響原始數據
+        item_copy = item.copy()
+        # 圖片轉字串
+        item_copy['image'] = encode_image(item['image'])
+        export_data.append(item_copy)
+    return json.dumps(export_data)
+
+def load_wardrobe_from_json(json_file):
+    try:
+        data = json.load(json_file)
+        new_wardrobe = []
+        for item in data:
+            # 字串轉回圖片
+            img_data = base64.b64decode(item['image'])
+            item['image'] = Image.open(io.BytesIO(img_data))
+            new_wardrobe.append(item)
+        return new_wardrobe
+    except Exception as e:
+        st.error(f"讀取失敗: {e}")
+        return []
+
 def ask_openrouter_direct(text_prompt, image_list=None):
     if not OPENROUTER_API_KEY:
         return generate_mock_response()
@@ -331,7 +357,6 @@ def settings_dialog():
     if sel_p != s.get('last_preset'):
         s['persona'] = presets[sel_p]
         s['last_preset'] = sel_p
-        # 這裡不加 st.rerun()，以防 Dialog 閃退，Streamlit 會自動更新 UI
     
     s['persona'] = st.text_area("指令 (可手動修改)", value=s['persona'])
     
@@ -389,7 +414,6 @@ def chat_dialog():
 
 # --- 7. 主程式 ---
 
-# 確保天氣有 User 名字的客製化
 if st.session_state.stylist_profile['weather_cache'] == "查詢中..." or "Hi User" in st.session_state.stylist_profile['weather_cache']:
     loc = st.session_state.user_profile['location']
     name = st.session_state.user_profile['name']
@@ -418,19 +442,15 @@ with st.sidebar:
     # 開始對話按鈕
     if st.button("💬 開始對話", type="primary", use_container_width=True): chat_dialog()
     
-    # --- 修正重點：使用 callback 解決按鈕文字不同步問題 ---
-    
-    # 定義切換狀態的 callback
+    # 定義 callback
     def toggle_fitting_room():
         st.session_state.show_fitting_room = not st.session_state.show_fitting_room
 
-    # 根據當前狀態決定按鈕文字
     room_btn_label = "🚪 離開試身室" if st.session_state.show_fitting_room else "🎽 進入試身室"
     
-    # 綁定 callback
     st.button(room_btn_label, on_click=toggle_fitting_room, use_container_width=True)
     
-    # 試身室面板 (已移除白框背景)
+    # 試身室面板
     if st.session_state.show_fitting_room:
         st.markdown('<div class="fitting-room-box">', unsafe_allow_html=True)
         st.caption("目前搭配")
@@ -463,6 +483,34 @@ with st.sidebar:
         st.session_state.wearing_top = None
         st.session_state.wearing_bottom = None
         st.rerun()
+
+    # --- 新增：Save/Load 區塊 (放在最下方) ---
+    st.divider()
+    with st.expander("📂 備份與還原"):
+        st.caption("將衣櫃存成檔案，下次再來讀取")
+        
+        # 下載按鈕
+        if st.session_state.wardrobe:
+            json_str = convert_wardrobe_to_json()
+            st.download_button(
+                label="💾 下載衣櫃備份 (.json)",
+                data=json_str,
+                file_name="my_wardrobe_backup.json",
+                mime="application/json",
+            )
+        else:
+            st.button("💾 下載衣櫃備份 (.json)", disabled=True)
+
+        # 上傳還原
+        uploaded_backup = st.file_uploader("還原備份", type=["json"], key="backup_loader")
+        if uploaded_backup:
+            # 讀取並覆蓋
+            loaded_data = load_wardrobe_from_json(uploaded_backup)
+            if loaded_data:
+                st.session_state.wardrobe = loaded_data
+                st.success(f"成功還原 {len(loaded_data)} 件衣物！")
+                time.sleep(1)
+                st.rerun()
 
 # 主畫面
 st.subheader("🧥 我的衣櫃")
