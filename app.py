@@ -33,7 +33,7 @@ if 'stylist_profile' not in st.session_state:
         "avatar_emoji": "✨",
         "avatar_image": None,
         "persona": "一位貼心的專業形象顧問，語氣親切、專業。",
-        "current_weather": "晴朗 24°C" # 還原天氣
+        "current_weather": "晴朗 24°C"
     }
 
 if 'chat_history' not in st.session_state:
@@ -42,7 +42,7 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 3. 頁面設定與 CSS (還原你最愛的 UI) ---
+# --- 3. 頁面設定與 CSS (你最滿意的 UI) ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
@@ -61,7 +61,7 @@ st.markdown("""
         object-fit: contain !important;
     }
     
-    /* 2. 造型師卡片 (大頭像風格) */
+    /* 2. 造型師卡片 (大頭像) */
     .stylist-container {
         background-color: #f0f2f6;
         border-radius: 15px;
@@ -88,34 +88,45 @@ st.markdown("""
         height: 100%;
         object-fit: cover;
     }
-    
-    /* 3. 按鈕微調 */
     button[kind="secondary"] { border: 1px solid #ddd; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 ---
+# --- 4. 核心功能 (自動找模型) ---
 
 def compress_image(image):
-    """壓縮圖片防斷線"""
     image = image.convert('RGB')
     image.thumbnail((512, 512))
     return image
 
 def ask_gemini(inputs):
-    """AI 連線 (已對應新版 requirements)"""
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(inputs)
-        return response.text
-    except Exception as e:
-        # 如果 Flash 失敗，自動試 Pro
+    """
+    智能連接：自動嘗試所有可用的模型，直到成功為止
+    """
+    # 這裡列出所有可能的模型名稱，程式會一個個試
+    models_to_try = [
+        'gemini-1.5-flash', 
+        'gemini-1.5-pro',
+        'gemini-1.0-pro-vision', # 舊版 Vision
+        'gemini-pro-vision',
+        'gemini-pro' # 純文字後備
+    ]
+    
+    last_error = ""
+    
+    for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel(model_name)
+            # 嘗試生成
             response = model.generate_content(inputs)
             return response.text
-        except:
-            return f"⚠️ 連線失敗: {str(e)} (請確認 requirements.txt 已更新)"
+        except Exception as e:
+            last_error = str(e)
+            # 如果是圖片問題導致 gemini-pro 失敗，這是預期的，繼續試下一個
+            continue
+
+    # 如果全部都失敗
+    return f"⚠️ 所有模型都連線失敗。請檢查: \n1. Sidebar 版本是否 >= 0.7.0 \n2. 最後錯誤: {last_error}"
 
 def process_upload(files, category, season):
     if not files: return
@@ -127,7 +138,7 @@ def process_upload(files, category, season):
                 'image': img, 
                 'category': category, 
                 'season': season,
-                'size_data': {'length': '', 'width': '', 'waist': ''} # 初始化尺碼欄位
+                'size_data': {'length': '', 'width': '', 'waist': ''}
             })
         except: pass
     st.session_state.uploader_key += 1
@@ -135,7 +146,7 @@ def process_upload(files, category, season):
     time.sleep(0.5)
     st.rerun()
 
-# --- 5. Dialogs (功能修復) ---
+# --- 5. Dialogs ---
 
 @st.dialog("✏️ 編輯單品")
 def edit_item_dialog(item):
@@ -146,7 +157,6 @@ def edit_item_dialog(item):
         idx = cats.index(item['category']) if item['category'] in cats else 0
         item['category'] = st.selectbox("分類", cats, index=idx)
         
-        # 還原詳細尺碼輸入
         st.caption("詳細尺碼")
         if any(x in item['category'] for x in ["上衣", "外套", "連身裙"]):
             item['size_data']['length'] = st.text_input("衣長 (cm)", value=item['size_data']['length'])
@@ -182,7 +192,6 @@ def settings_dialog():
         s['avatar_type'] = 'emoji'
         s['avatar_emoji'] = st.text_input("Emoji", value=s['avatar_emoji'])
 
-    # 人設修復
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
@@ -190,24 +199,23 @@ def settings_dialog():
         "霸道總裁": "強勢但寵溺的總裁，不准穿太露。"
     }
     
-    # 使用 Button 確保更新
     selected_p = st.selectbox("人設風格", list(presets.keys()))
     if st.button("⬇️ 套用人設"):
         s['persona'] = presets[selected_p]
         st.success(f"已切換為：{selected_p}")
         time.sleep(0.5)
-        st.rerun() # 強制刷新確保文字框更新
+        st.rerun()
     
     s['persona'] = st.text_area("指令", value=s['persona'])
     if st.button("完成", type="primary"): st.rerun()
 
-# --- 6. 聊天功能 (防彈版) ---
+# --- 6. 聊天功能 ---
 @st.dialog("💬 與 Stylist 對話", width="large")
 def chat_dialog():
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 頂部
+    # Header
     c1, c2 = st.columns([1, 4])
     with c1:
         if s['avatar_type'] == 'image' and s['avatar_image']:
@@ -217,17 +225,15 @@ def chat_dialog():
             st.markdown(f"<h1>{s['avatar_emoji']}</h1>", unsafe_allow_html=True)
     with c2:
         st.subheader(s['name'])
-        st.caption(f"📍 {p['location']} | {s['current_weather']}") # 天氣回來了
+        st.caption(f"📍 {p['location']} | {s['current_weather']}")
 
     st.divider()
 
-    # 顯示歷史
     for msg in st.session_state.chat_history:
         role = msg["role"]
         with st.chat_message(role):
             st.write(msg["content"])
 
-    # 輸入區
     if user_in := st.chat_input("想問咩？"):
         st.session_state.chat_history.append({"role": "user", "content": user_in})
         with st.chat_message("user"):
@@ -244,7 +250,6 @@ def chat_dialog():
                 inputs = [sys_msg]
                 for i, item in enumerate(st.session_state.wardrobe[:5]):
                     try:
-                        # 傳送詳細尺碼給 AI
                         size_str = f"L:{item['size_data']['length']} W:{item['size_data']['width']}"
                         inputs.append(f"單品#{i+1} ({item['category']}) 尺碼:{size_str}")
                         inputs.append(compress_image(item['image']))
@@ -254,15 +259,17 @@ def chat_dialog():
                 st.write(reply) 
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
-# --- 7. 主介面 (還原側邊欄) ---
+# --- 7. 主介面 ---
 with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # 造型師卡片 Container
+    # 顯示版本資訊 (Debugging)
+    st.caption(f"System v2.0 | AI Lib: {genai.__version__}")
+
+    # 造型師卡片
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     
-    # 頭像
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
     if s['avatar_type'] == 'image' and s['avatar_image']:
         try: st.image(s['avatar_image'], use_column_width=True)
@@ -277,8 +284,7 @@ with st.sidebar:
     with c_btn[1]:
         if st.button("⚙️ 設定"): settings_dialog()
     
-    st.caption(f"早安 {p['name']} | {s['current_weather']}") # 顯示天氣
-    
+    st.caption(f"早安 {p['name']} | {s['current_weather']}")
     st.markdown('</div>', unsafe_allow_html=True)
     
     if st.button("💬 開始對話", type="primary", use_container_width=True):
@@ -286,7 +292,6 @@ with st.sidebar:
 
     st.divider()
 
-    # 加入衣櫃
     st.subheader("📥 加入衣櫃")
     c1, c2 = st.columns(2)
     cat = c1.selectbox("分類", ["上衣", "下身", "連身裙", "外套", "鞋", "袋"])
@@ -299,7 +304,7 @@ with st.sidebar:
         st.session_state.wardrobe = []
         st.rerun()
 
-# --- 8. 主衣櫃顯示 ---
+# --- 8. 主衣櫃 ---
 st.subheader("🧥 我的衣櫃")
 if not st.session_state.wardrobe:
     st.info("👈 左側加入衣物，然後點「開始對話」！")
