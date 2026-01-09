@@ -11,7 +11,7 @@ from openai import OpenAI
 # 👇 請將你的 sk-or-v1-... Key 貼在下面引號內
 OPENROUTER_API_KEY = "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" 
 
-# 設定 OpenRouter 客戶端 (這是關鍵：連線去 OpenRouter 而不是 Google)
+# 設定 OpenRouter 客戶端
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
@@ -47,7 +47,7 @@ if 'chat_history' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
-# --- 3. 頁面設定與 CSS (保留你喜歡的 UI) ---
+# --- 3. 頁面設定 ---
 st.set_page_config(page_title="My Stylist", page_icon="👗", layout="wide")
 
 st.markdown("""
@@ -94,26 +94,21 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. 核心功能 (OpenRouter 連線) ---
+# --- 4. 核心功能 ---
 
 def encode_image(image):
-    """將圖片轉為 Base64"""
     buffered = io.BytesIO()
     image = image.convert('RGB')
-    image.thumbnail((512, 512)) # 壓縮圖片
+    image.thumbnail((512, 512))
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 def ask_openrouter(text_prompt, image_list=None):
-    """
-    使用 OpenRouter API 進行對話
-    """
     if "sk-or-v1" not in OPENROUTER_API_KEY:
         return "⚠️ 請先在代碼第 12 行貼上你的 OpenRouter Key！"
 
     messages_content = [{"type": "text", "text": text_prompt}]
     
-    # 加入圖片
     if image_list:
         for img in image_list:
             base64_image = encode_image(img)
@@ -126,15 +121,8 @@ def ask_openrouter(text_prompt, image_list=None):
 
     try:
         completion = client.chat.completions.create(
-            # 使用 Google 最新的 Gemini 2.0 Flash (免費且極快)
             model="google/gemini-2.0-flash-exp:free", 
-            messages=[
-                {
-                    "role": "user",
-                    "content": messages_content
-                }
-            ],
-            # OpenRouter 特定標頭 (必須)
+            messages=[{"role": "user", "content": messages_content}],
             extra_headers={
                 "HTTP-Referer": "https://myapp.com", 
                 "X-Title": "My Stylist App",
@@ -142,7 +130,7 @@ def ask_openrouter(text_prompt, image_list=None):
         )
         return completion.choices[0].message.content
     except Exception as e:
-        return f"⚠️ OpenRouter 連線錯誤: {str(e)}"
+        return f"⚠️ 連線錯誤: {str(e)}"
 
 # --- 處理上傳 ---
 def process_upload(files, category, season):
@@ -208,7 +196,7 @@ def settings_dialog():
     else:
         s['avatar_type'] = 'emoji'
         s['avatar_emoji'] = st.text_input("Emoji", value=s['avatar_emoji'])
-
+    
     presets = {
         "專業顧問": "一位貼心的專業形象顧問，語氣親切、專業。",
         "毒舌專家": "眼光極高的時尚主編，說話尖酸刻薄但一針見血。",
@@ -263,8 +251,6 @@ def chat_dialog():
                     f"用戶問：{user_in}\n"
                     f"請從衣櫃給建議 (如有)。"
                 )
-                
-                # 準備圖片 (只傳前 3 張)
                 img_list = []
                 for item in st.session_state.wardrobe[:3]:
                     img_list.append(item['image'])
@@ -280,9 +266,8 @@ with st.sidebar:
     s = st.session_state.stylist_profile
     p = st.session_state.user_profile
     
-    # Key Status
     key_status = "✅ OpenRouter Ready" if "sk-or-v1" in OPENROUTER_API_KEY else "❌ 未填 Key"
-    st.caption(f"System v5.0 (OpenRouter) | {key_status}")
+    st.caption(f"System v5.0 | {key_status}")
 
     st.markdown('<div class="stylist-container">', unsafe_allow_html=True)
     st.markdown('<div class="avatar-circle">', unsafe_allow_html=True)
@@ -325,4 +310,11 @@ if not st.session_state.wardrobe:
 else:
     cats = list(set([x['category'] for x in st.session_state.wardrobe]))
     sel = st.multiselect("🔍", cats, placeholder="篩選分類")
-    items = [x for x in st.session_
+    items = [x for x in st.session_state.wardrobe if x['category'] in sel] if sel else st.session_state.wardrobe
+    
+    cols = st.columns(5)
+    for i, item in enumerate(items):
+        with cols[i % 5]:
+            st.image(item['image'])
+            if st.button("✏️", key=f"e_{item['id']}", use_container_width=True):
+                 edit_item_dialog(item)
